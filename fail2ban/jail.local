@@ -1,0 +1,89 @@
+# fail2ban para ia.santiagoapostol.net — 2026-09-03
+#
+# Contexto: nginx corre en el host (bare metal), no en docker, asi que las
+# reglas de fail2ban en la cadena INPUT si cortan el trafico a 80/443. Si algun
+# dia nginx se dockeriza, esto deja de funcionar en silencio: docker inserta sus
+# reglas antes de INPUT.
+#
+# Todo el sitio esta detras de oauth2-proxy con Google OIDC + allowlist de
+# dominio, o sea que NO hay superficie de fuerza bruta de contrasenas. Estas
+# jaulas no protegen credenciales: cortan el goteo de escaneres antes de que
+# oauth2-proxy les sirva 40 KB de pagina de login por cada sonda.
+
+[DEFAULT]
+# Rangos propios. Sin esto se autobloquea la LAN: medido el 2026-09-03, la IP
+# de tailscale 100.117.70.53 acumulaba 15 respuestas 4xx legitimas y el router
+# 192.168.1.1 otras 2.
+ignoreip = 127.0.0.1/8 ::1
+           192.168.1.0/24
+           192.168.68.0/24
+           100.64.0.0/10
+           fd7a:115c:a1e0::/48
+
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+
+# OBLIGATORIO. jail.conf de Ubuntu trae `backend = auto`, y aqui `auto` resuelve
+# a systemd porque systemd esta presente. Las jaulas de nginx y recidive leen
+# FICHEROS (/var/log/nginx/*.log, /var/log/fail2ban.log), que nunca pasan por el
+# journal: con el backend heredado arrancaban y no casaban nada nunca. El sintoma
+# en /var/log/fail2ban.log es "uses systemd {}" y "Jail started without
+# 'journalmatch' set". La jaula sshd sí quiere systemd y lo fija por su cuenta.
+backend = polling
+
+# Ban incremental: cada reincidencia multiplica el tiempo, con techo de 5 semanas.
+bantime.increment = true
+bantime.factor    = 2
+bantime.maxtime   = 5w
+
+# El paquete de Ubuntu 24.04 trae iptables-multiport por defecto, que aqui va
+# sobre el backend nf_tables (iptables v1.8.10 nf_tables) y convive con ufw.
+banaction     = iptables-multiport
+banaction_allports = iptables-allports
+
+[sshd]
+# Hoy sshd no esta expuesto a internet (0 "Failed password" en el journal y en
+# auth.log a fecha 2026-09-03; solo 80/443 estan reenviados en el doble NAT).
+# Se deja activa como seguro barato por si algun dia se abre el 22.
+enabled  = true
+backend  = systemd
+maxretry = 4
+bantime  = 1d
+
+[nginx-probe]
+# Sondas a rutas que ningun cliente legitimo pide jamas (.env, .git/config,
+# wp-admin...). Validado sobre 32 351 lineas de openwebui_access.log*: marca
+# exactamente 4 IPs, las 4 escaneres, y cero usuarios reales. Por eso maxretry
+# es 1: el primer /.env ya es respuesta suficiente.
+enabled  = true
+port     = http,https
+logpath  = /var/log/nginx/openwebui_access.log
+          /var/log/nginx/almacen_fp_access.log
+          /var/log/nginx/access.log
+maxretry = 1
+findtime = 1d
+bantime  = 1d
+
+[nginx-4xx]
+# Red de seguridad generica para escaneres que no pisan ninguna ruta conocida.
+# Umbral calibrado con datos reales del 2026-09-03: el usuario legitimo mas
+# ruidoso acumulo 12 respuestas 4xx en varios meses de log; el escaner medido,
+# 276. 20 en 10 minutos deja un margen enorme.
+enabled  = true
+port     = http,https
+logpath  = /var/log/nginx/openwebui_access.log
+          /var/log/nginx/almacen_fp_access.log
+          /var/log/nginx/access.log
+maxretry = 20
+findtime = 10m
+bantime  = 6h
+
+[recidive]
+# Quien vuelve tras varios baneos se va una semana, a todos los puertos.
+enabled  = true
+logpath  = /var/log/fail2ban.log
+banaction = %(banaction_allports)s
+bantime  = 1w
+findtime = 1d
+maxretry = 5
