@@ -19,9 +19,46 @@ BACKUP="${SITE}.bak-precatchall-${STAMP}"
 
 [[ -f $SRC  ]] || { echo "Falta $SRC" >&2; exit 1; }
 [[ -f $SITE ]] || { echo "Falta $SITE" >&2; exit 1; }
-for f in catchall.crt catchall.key; do
-  [[ -f /opt/iasantiago-rag/nginx/certs/$f ]] || { echo "Falta el certificado $f" >&2; exit 1; }
-done
+# El certificado del catch-all NO esta en git: nginx/certs/ va en .gitignore,
+# que es lo correcto para una clave privada. Pero catchall.conf si esta, asi que
+# un checkout limpio se quedaba con un nginx que no arranca por un fichero que
+# no existe y cuyo comando de creacion no estaba escrito en ninguna parte. Se
+# genera aqui si falta.
+#
+# No importa que sea autofirmado ni el nombre que lleve: este bloque no responde
+# nada (444), asi que lo correcto es justamente que el handshake no valide. Por
+# eso CN=invalid y no el nombre de ningun servicio real.
+CERTDIR=/opt/iasantiago-rag/nginx/certs
+CRT="$CERTDIR/catchall.crt"
+KEY="$CERTDIR/catchall.key"
+
+huella() { # huella de la clave publica, para saber si crt y key son pareja
+  case $1 in
+    *.crt) openssl x509 -in "$1" -noout -pubkey 2>/dev/null | openssl md5 ;;
+    *)     openssl pkey -in "$1" -pubout   2>/dev/null | openssl md5 ;;
+  esac
+}
+
+if [[ ! -f $CRT || ! -f $KEY ]]; then
+  echo "== generando el certificado del catch-all (falta) =="
+  mkdir -p "$CERTDIR"
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+    -keyout "$KEY" -out "$CRT" -days 3650 -subj '/CN=invalid' 2>/dev/null
+  # El script corre como root; devolver la pareja al dueno del repo para que se
+  # pueda gestionar sin sudo, igual que el resto de nginx/certs/.
+  DUENO=$(stat -c '%U:%G' /opt/iasantiago-rag)
+  chown "$DUENO" "$CRT" "$KEY"
+  chmod 600 "$KEY"; chmod 644 "$CRT"
+  openssl x509 -in "$CRT" -noout -subject -dates | sed 's/^/   /'
+else
+  echo "== certificado del catch-all ya presente =="
+fi
+
+# Una pareja que no case hace que nginx no arranque, con un error poco
+# evidente. Mejor detectarlo aqui que en el reload.
+[[ $(huella "$CRT") == $(huella "$KEY") ]] || {
+  echo "El certificado y la clave de $CERTDIR no son pareja. Borra ambos y vuelve a ejecutar." >&2
+  exit 1; }
 
 revertir() {
   echo "!! fallo: revirtiendo" >&2
