@@ -1,9 +1,23 @@
 [Unit]
-Description=Nightly offline eval at 02:30
+Description=Offline eval (Recall/MRR) dentro del horario escolar
 
 [Timer]
-OnCalendar=*-*-* 02:30:00
-Persistent=true
+# Antes: *-*-* 02:30:00, que no podia funcionar nunca. El cron de horario
+# escolar levanta el stack a las 08:10 (lun-vie) y lo para a las 14:30, asi que
+# a las 02:30 rag-api no existe y el servicio moria con "Connection refused"
+# en 127.0.0.1:8001. Ver FINDINGS.md 6.9.
+#
+# 14:15, al final de la ventana: las clases ya estan acabando, asi que las 130
+# consultas no compiten por la GPU con el trafico real. Cuenta con que el cron
+# de cierre pase de 14:30 a 15:00 -> 45 min de margen. Si el cierre siguiera en
+# 14:30, la tirada solo tendria 15 min y podria morir a medias.
+OnCalendar=Mon-Fri 14:15:00
+
+# Persistent=false a proposito: con true, un arranque en sabado dispararia la
+# ejecucion perdida del viernes con el stack parado, que es justo el fallo que
+# esto elimina. Si se pierde una tirada, se pierde.
+Persistent=false
+
 Unit=iasantiago-rag-eval.service
 
 [Install]
