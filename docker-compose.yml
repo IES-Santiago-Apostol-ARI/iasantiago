@@ -88,8 +88,19 @@ services:
     #
     # Los chat_template_kwargs de la peticion tienen prioridad sobre estos, de
     # modo que enable_thinking=true lo sigue activando de forma explicita.
+    # --revision fija la instantánea del caché HF en vez de seguir refs/main.
+    # Motivo (2026-09-11): rag-api monta el MISMO volumen huggingface_cache y,
+    # sin HF_HUB_OFFLINE, su AutoTokenizer.from_pretrained(VLLM_MODEL)
+    # (core/cache.py) resuelve main contra el Hub, baja SOLO los ficheros de
+    # tokenizer a una instantánea nueva y reescribe refs/main. vLLM, que sí va
+    # offline, seguía ese refs/main hasta un directorio sin config.json y moría
+    # al arrancar con "Invalid repository ID or local directory specified".
+    # Pasó el 2026-09-02, el 2026-09-06 y el 2026-09-09; los refs rotos quedan
+    # como refs/main.roto-<fecha>.bak dentro del volumen.
     command: >
       ${VLLM_MODEL}
+      --revision ${VLLM_MODEL_REVISION}
+      --tokenizer-revision ${VLLM_MODEL_REVISION}
       --dtype ${VLLM_DTYPE}
       --tensor-parallel-size ${VLLM_TENSOR_PARALLEL_SIZE}
       --max-model-len ${VLLM_MAX_MODEL_LEN}
