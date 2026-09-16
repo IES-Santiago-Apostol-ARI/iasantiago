@@ -49,4 +49,8 @@ sudo systemctl enable --now iasantiago-rag-eval.timer
 # logrotate
 sudo ln -sf $BASE/systemd/logrotate-telemetry /etc/logrotate.d/iasantiago-rag
 
+# Manejo de fallos de GPU: cap de potencia, muestreo y recuperacion.
+# Reparto copia/enlace propio, explicado en la cabecera del script.
+sudo $BASE/scripts/install-nvidia-fault-handling.sh
+
 echo "Despliegue completado. Abre https://iasantiago.santiagoapostol.net (acepta el certificado si es self-signed)."

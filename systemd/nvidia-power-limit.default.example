@@ -1,0 +1,5 @@
+# Board power cap in watts, applied by nvidia-power-limit.service.
+# This board accepts 400-600 W; 600 W is the default and the hardware max.
+# 450 W keeps roughly full decode throughput on a memory-bound workload
+# while cutting the transient peaks. Lower it to 400 if an Xid 79 recurs.
+NVIDIA_POWER_LIMIT_W=450

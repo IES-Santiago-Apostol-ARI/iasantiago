@@ -1,0 +1,11 @@
+# Sourced by nvidia-monitor.sh.
+#
+# Optional: a command that receives the alert text on stdin. nvidia-monitor
+# already logs, writes the journal at daemon.alert, broadcasts with wall and
+# sets /var/run/reboot-required; this is for anything that reaches you when
+# you are not at the machine. Examples:
+#
+#   NVIDIA_MONITOR_NOTIFY_CMD='curl -s -d @- https://ntfy.sh/your-topic'
+#   NVIDIA_MONITOR_NOTIFY_CMD='mail -s "GPU fault on iasantiago" you@example.net'
+#
+#NVIDIA_MONITOR_NOTIFY_CMD=''
