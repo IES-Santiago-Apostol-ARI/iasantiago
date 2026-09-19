@@ -42,10 +42,10 @@ services:
   # docling-service removed - extraction now runs inside ingestor
 
   vllm:
-    # Fijado al digest de la nightly auditada (era :nightly, un tag móvil).
-    # Para actualizar: `docker pull vllm/vllm-openai:nightly`, verificar, y
+    # Fijado al digest de v0.28.0 (antes, una nightly también fijada por digest).
+    # Para actualizar: `docker pull vllm/vllm-openai:<tag>`, verificar, y
     # sustituir el digest por el nuevo (docker inspect ... RepoDigests).
-    image: vllm/vllm-openai@sha256:045ede572515526c6dc1f4380ba6b988736adc3769db61cc3ce4ff3cca226ed8
+    image: vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14
     container_name: vllm
     restart: unless-stopped
     ipc: host
@@ -97,10 +97,21 @@ services:
     # al arrancar con "Invalid repository ID or local directory specified".
     # Pasó el 2026-09-02, el 2026-09-06 y el 2026-09-09; los refs rotos quedan
     # como refs/main.roto-<fecha>.bak dentro del volumen.
+    #
+    # Modelo gittensor NVFP4 (modelopt) desde 2026-09-19, sustituye a unsloth NVFP4.
+    # Medido el 2026-09-18 a igualdad de flags: pesos 4,6 GB menores -> KV de
+    # 152 092 a 279 893 tokens; con 4 alumnos a ~30K de contexto el primer token
+    # pasa de 20 s a 5,6 s, y a 16 concurrentes el agregado de 269 a 444 tok/s.
+    # Calidad empatada (código, tool calls, tareas agénticas). Coste: sin cabeza
+    # MTP (la quitó el autor), así que no hay --speculative-config y un solo
+    # usuario baja de 124 a 85 tok/s. Sin --trust-remote-code: el repo no trae
+    # código Python. --quantization modelopt va ligado a este modelo: al cambiar
+    # VLLM_MODEL hay que revisarlo.
     command: >
       ${VLLM_MODEL}
       --revision ${VLLM_MODEL_REVISION}
       --tokenizer-revision ${VLLM_MODEL_REVISION}
+      --quantization modelopt
       --dtype ${VLLM_DTYPE}
       --tensor-parallel-size ${VLLM_TENSOR_PARALLEL_SIZE}
       --max-model-len ${VLLM_MAX_MODEL_LEN}
@@ -116,7 +127,6 @@ services:
       --language-model-only
       --enable-auto-tool-choice
       --tool-call-parser qwen3_coder
-      --speculative-config '{"method": "mtp", "num_speculative_tokens": 2}'
       --default-chat-template-kwargs '{"enable_thinking": false}'
     volumes:
       - huggingface_cache:/root/.cache/huggingface
