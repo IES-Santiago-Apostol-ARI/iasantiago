@@ -47,7 +47,11 @@ services:
     # sustituir el digest por el nuevo (docker inspect ... RepoDigests).
     image: vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14
     container_name: vllm
-    restart: unless-stopped
+    # Temporal (2026-10-15): "no" mientras la RTX 5090 se cae del bus (ver
+    # GPUTROUBLESHOOTING.md). Con unless-stopped, cada caída deja a Docker
+    # relanzando vLLM sin fin contra una GPU muerta. Volver a unless-stopped
+    # cuando el hardware esté arreglado.
+    restart: "no"
     ipc: host
     ulimits:
       memlock: -1
@@ -107,6 +111,12 @@ services:
     # usuario baja de 124 a 85 tok/s. Sin --trust-remote-code: el repo no trae
     # código Python. --quantization modelopt va ligado a este modelo: al cambiar
     # VLLM_MODEL hay que revisarlo.
+    #
+    # --no-enable-flashinfer-autotune (2026-10-15): el autotune de fp4_gemm al
+    # arrancar son ráfagas cortas a plena potencia y tumbó la tarjeta en 7 de 7
+    # arranques el 2026-10-14 (ver GPUTROUBLESHOOTING.md). Sin él FlashInfer usa
+    # sus tácticas por defecto. Quitarlo cuando el hardware esté arreglado; su
+    # resultado se guarda entonces en el volumen vllm_cache.
     command: >
       ${VLLM_MODEL}
       --revision ${VLLM_MODEL_REVISION}
@@ -128,8 +138,12 @@ services:
       --enable-auto-tool-choice
       --tool-call-parser qwen3_coder
       --default-chat-template-kwargs '{"enable_thinking": false}'
+      --no-enable-flashinfer-autotune
     volumes:
       - huggingface_cache:/root/.cache/huggingface
+      # Cachés de torch.compile y del autotune de FlashInfer: sin volumen se
+      # pierden cada vez que se recrea el contenedor.
+      - vllm_cache:/root/.cache/vllm
     deploy:
       resources:
         reservations:
@@ -370,3 +384,4 @@ volumes:
   huggingface_cache:
   models_cache:
   docling_cache:
+  vllm_cache:

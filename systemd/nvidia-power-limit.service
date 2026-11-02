@@ -1,5 +1,5 @@
 [Unit]
-Description=Cap RTX 5090 board power to reduce PCIe/power transients
+Description=Cap RTX 5090 clocks (and optionally board power) to reduce power transients
 Documentation=man:nvidia-smi(1)
 # The card defaults to its 600 W maximum. Capping the board trims the
 # millisecond-scale power transients that are the usual cause of Xid 79
@@ -7,13 +7,23 @@ Documentation=man:nvidia-smi(1)
 # 2026-09-16. Allowed range on this board is 400-600 W.
 After=nvidia-persistenced.service
 Wants=nvidia-persistenced.service
+# Must be in place before vLLM starts and runs its FlashInfer autotune burst.
+Before=iasantiago-rag.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=-/etc/default/nvidia-power-limit
+# Persistence mode first: Ubuntu's nvidia-persistenced runs with
+# --no-persistence-mode, so the idle card deinitialises and forgets the cap
+# (seen 2026-10-08: back at 600 W fifteen minutes after boot set 450 W).
+ExecStart=/usr/bin/nvidia-smi --persistence-mode=1
 # Run as root: nvidia-smi creates /dev/nvidia* if the nodes are not there yet.
-ExecStart=/bin/sh -c '/usr/bin/nvidia-smi --power-limit=${NVIDIA_POWER_LIMIT_W:-450}'
+#ExecStart=/bin/sh -c '/usr/bin/nvidia-smi --power-limit=${NVIDIA_POWER_LIMIT_W:-450}'
+# 2026-10-14: a power cap did not stop the drops (it reacts too slowly for the
+# start of a burst); locking the max graphics clock limits voltage and the
+# current step itself. Override with NVIDIA_MAX_CLOCK_MHZ in the env file.
+ExecStart=/bin/sh -c '/usr/bin/nvidia-smi --lock-gpu-clocks=0,${NVIDIA_MAX_CLOCK_MHZ:-2200}'
 # Reapplied by nvidia-recover.sh, because reloading the modules resets the
 # board to its default limit.
 
