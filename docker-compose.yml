@@ -42,10 +42,11 @@ services:
   # docling-service removed - extraction now runs inside ingestor
 
   vllm:
-    # Fijado al digest de v0.28.0 (antes, una nightly también fijada por digest).
+    # Fijado al digest de v0.33.0 (antes, v0.28.0:
+    # sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14).
     # Para actualizar: `docker pull vllm/vllm-openai:<tag>`, verificar, y
     # sustituir el digest por el nuevo (docker inspect ... RepoDigests).
-    image: vllm/vllm-openai@sha256:61fc8a896b0a4fbbbdc063bc4b0dbc25ce98e02b5050c24aeb7830ac02039b14
+    image: vllm/vllm-openai@sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e
     container_name: vllm
     # Temporal (2026-10-15): "no" mientras la RTX 5090 se cae del bus (ver
     # GPUTROUBLESHOOTING.md). Con unless-stopped, cada caída deja a Docker
@@ -117,6 +118,12 @@ services:
     # arranques el 2026-10-14 (ver GPUTROUBLESHOOTING.md). Sin él FlashInfer usa
     # sus tácticas por defecto. Quitarlo cuando el hardware esté arreglado; su
     # resultado se guarda entonces en el volumen vllm_cache.
+    #
+    # VLLM_EXTRA_ARGS (2026-11-03): flags que van ligados a una revisión
+    # concreta del modelo, para cambiar de una a otra sólo desde .env. Prueba
+    # en curso: la revisión 0cc27958 del mismo repo (19 ago) aún trae la cabeza
+    # MTP y admite --speculative-config '{"method":"mtp",...}'; la 5b7a687f no.
+    # Vacío por defecto.
     command: >
       ${VLLM_MODEL}
       --revision ${VLLM_MODEL_REVISION}
@@ -139,6 +146,7 @@ services:
       --tool-call-parser qwen3_coder
       --default-chat-template-kwargs '{"enable_thinking": false}'
       --no-enable-flashinfer-autotune
+      ${VLLM_EXTRA_ARGS:-}
     volumes:
       - huggingface_cache:/root/.cache/huggingface
       # Cachés de torch.compile y del autotune de FlashInfer: sin volumen se
@@ -149,8 +157,19 @@ services:
         reservations:
           devices:
             - capabilities: [gpu]
+    # Healthcheck por el nombre de servicio, no por localhost (2026-11-05): si
+    # un arranque falla porque el puerto 8000 del host está ocupado (llama-server
+    # arranca con el sistema y lo coge), Docker deja el contenedor sin endpoint
+    # de red y el siguiente `compose up` lo levanta SIN red. localhost seguía
+    # respondiendo y vLLM salía "healthy" mientras Open WebUI no lo resolvía
+    # ("Cannot connect to host vllm:8000") y no mostraba ningún modelo. Por el
+    # nombre, sin red no resuelve: vllm queda unhealthy y rag-api (service_healthy)
+    # no arranca, en vez de fingir que todo va.
+    # Si pasa: `systemctl stop llama-server`, y luego
+    # `docker network connect --alias vllm iasantiago-rag_default vllm`
+    # (sin reiniciar vLLM) o `docker compose up -d --force-recreate vllm`.
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fs", "http://vllm:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 30
