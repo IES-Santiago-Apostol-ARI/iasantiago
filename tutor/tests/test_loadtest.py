@@ -134,8 +134,14 @@ def test_retrieve_antes_del_chat(server):
         "--rag-url", f"http://127.0.0.1:{port}",
     )
     assert result.returncode == 0
-    retrieves = [r for r in server.requests if r["path"] == "/retrieve"]
-    assert len(retrieves) == 1
+    retrieve_idx = [i for i, r in enumerate(server.requests)
+                    if r["path"] == "/retrieve"]
+    chat_idx = [i for i, r in enumerate(server.requests)
+                if r["path"] == "/v1/chat/completions"]
+    assert len(retrieve_idx) == 1
+    assert len(chat_idx) == 1
+    assert retrieve_idx[0] < chat_idx[0]
+    retrieves = [server.requests[i] for i in retrieve_idx]
     assert retrieves[0]["headers"]["Authorization"] == "Bearer K"
     assert retrieves[0]["body"]["topic"] == "Programming"
     assert retrieves[0]["body"]["query"]
@@ -164,3 +170,13 @@ def test_topic_sin_clave_es_error_de_uso(server):
     env = {k: v for k, v in os.environ.items() if k != "RAG_KEY"}
     result = run_script(server, "--students", "1", "--topic", "X", env=env)
     assert result.returncode == 2
+    assert "--topic needs the rag-api key" in result.stderr
+
+
+@pytest.mark.parametrize("server", ["ok"], indirect=True)
+def test_sin_prompt_file_no_hay_system(server):
+    result = run_script(server, "--students", "1")
+    assert result.returncode == 0
+    chats = chat_requests(server)
+    assert len(chats) == 1
+    assert chats[0]["body"]["messages"][0]["role"] == "user"
