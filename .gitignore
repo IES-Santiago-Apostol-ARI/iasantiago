@@ -12,11 +12,15 @@ docling-service/__pycache__/
 seeds/
 test/
 topics/
+# BD de la instancia Open WebUI del modo tutor (docker-compose.tutor.yml).
+tutor/data/
 .beads/
 .vscode/
 *.pyc
 */__pycache__/*
 *.md
+# Fichas de tarea del flujo orquestador (rama tutor): sí se versionan.
+!tasks/*.md
 retrieval.jsonl
 .claude/settings.local.json
 
