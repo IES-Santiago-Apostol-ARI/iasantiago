@@ -22,6 +22,7 @@ FOL.txt              -> fol                     (FOL)
 Latin.txt            -> latin                   (Latín)             [topic: Latin]
 AFD.txt              -> afd                     (AFD)
 Sostenibilidad.txt   -> sostenibilidad          (Sostenibilidad)
+TutorInformatica.txt -> tutor-ari               (Tutor Informática)  [sin Filter hasta la Fase 5; prompt en inglés a propósito]
 
 Nota: los prompts NO construyen URLs de cita ni conocen el tema. El contexto
 que inyecta el Filter ya trae, tras cada fragmento, una línea "FUENTE:" con el
