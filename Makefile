@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 ENV_FILE := .env
-BACKUP_DIR := /opt/iasantiago-rag/backups
+BACKUP_DIR ?= /opt/iasantiago-rag/backups
 DATE := $(shell date +%F_%H%M%S)
 
 # Modo tutor (docker-compose.tutor.yml): segundo Open WebUI que sustituye al normal.
@@ -8,7 +8,8 @@ TUTOR := COMPOSE_FILE=docker-compose.yml:docker-compose.tutor.yml
 
 .PHONY: gen-env up down stop seed reset bench \
         status logs tail rag-restart \
-        backup backup-topics backup-qdrant backup-state restore \
+        backup backup-topics backup-qdrant backup-state \
+        backup-openwebui backup-tutor restore \
         watcher-on watcher-off \
         publish-docs unpublish-docs \
         eval-sample eval-file eval-nightly \
@@ -87,7 +88,7 @@ tutor-off:
 	$(MAKE) web
 
 # ------- Backups -------
-backup: backup-topics backup-qdrant backup-state
+backup: backup-topics backup-qdrant backup-state backup-openwebui backup-tutor
 	@echo "Backup completo en $(BACKUP_DIR)/full-$(DATE)"
 
 backup-topics:
@@ -108,6 +109,28 @@ backup-state:
 	sudo tar -C /opt/iasantiago-rag -czf $(BACKUP_DIR)/state-$(DATE).tgz data/ingestor-state
 	@echo "[OK] estado del ingestor -> $(BACKUP_DIR)/state-$(DATE).tgz"
 
+# Copia una carpeta con BD SQLite viva parando antes su contenedor, y lo vuelve a
+# arrancar SOLO si estaba en marcha. $(1)=contenedor, $(2)=carpeta, $(3)=nombre.
+# Si la carpeta no existe (p. ej. nunca se usó el modo tutor) no hace nada.
+define backup_live_db
+	@if [ ! -d /opt/iasantiago-rag/$(2) ]; then \
+	    echo "[--] $(2) no existe, nada que copiar"; exit 0; \
+	fi; \
+	sudo mkdir -p $(BACKUP_DIR); \
+	running=$$(docker inspect -f '{{.State.Running}}' $(1) 2>/dev/null || echo false); \
+	if [ "$$running" = true ]; then docker stop $(1) >/dev/null || { echo "[ERR] no se pudo parar $(1); no se copia $(2)"; exit 1; }; fi; \
+	sudo tar -C /opt/iasantiago-rag -czf $(BACKUP_DIR)/$(3)-$(DATE).tgz $(2); rc=$$?; \
+	if [ "$$running" = true ]; then docker start $(1) >/dev/null || { echo "[ERR] $(1) no ha vuelto a arrancar"; rc=1; }; fi; \
+	if [ $$rc -eq 0 ]; then echo "[OK] $(2) -> $(BACKUP_DIR)/$(3)-$(DATE).tgz"; fi; \
+	exit $$rc
+endef
+
+backup-openwebui:
+	$(call backup_live_db,openwebui,openwebui/data,openwebui)
+
+backup-tutor:
+	$(call backup_live_db,tutor-webui,tutor/data,tutor)
+
 # Uso:
 # make restore BACKUP=2025-10-10_023000
 restore:
@@ -125,6 +148,10 @@ restore:
 	fi
 	@echo "Opcionalmente restaura topics si procede:"
 	@echo "  sudo tar -C /opt/iasantiago-rag -xzf $(BACKUP_DIR)/topics-$(BACKUP).tgz"
+	@echo "Y, si procede, los chats (con openwebui/tutor-webui parados):"
+	@echo "  sudo tar -C /opt/iasantiago-rag -xzf $(BACKUP_DIR)/openwebui-$(BACKUP).tgz"
+	@echo "  sudo tar -C /opt/iasantiago-rag -xzf $(BACKUP_DIR)/tutor-$(BACKUP).tgz"
+	@echo "  (el modo tutor no vuelve solo: make tutor)"
 	docker compose up -d
 
 # ------- Watcher on/off (override de comando en ingestor) -------
