@@ -74,7 +74,7 @@ def test_markdown_cabecera_tabla_y_resumen(tmp_path):
     assert "| Alumno | Sesiones | Días activos | Mensajes | Conversaciones más largas |" in md
     assert "[Título 1](https://ia.santiagoapostol.net/c/c1)" in md
     assert "[Título 2](https://ia.santiagoapostol.net/c/c2)" in md
-    assert "—" in md
+    assert "| Lucía (lucia@edu.es) | 0 | 0 | 0 | — |" in md
     assert "Sin actividad: 1 de 2 alumnos." in md
 
 
@@ -87,6 +87,24 @@ def test_markdown_escapa_barras_y_titulo_vacio(tmp_path):
     md = render_markdown(weeks, START, END)
     assert "a\\|b" in md
     assert "(sin título)" in md
+
+
+def test_markdown_escapa_nombre_y_saltos(tmp_path):
+    db = make_webui_db(tmp_path / "webui.db", [user("u1", "Ana|B", "ana@edu.es")], [
+        chat("c1", "u1", "l1\nl2", TUTOR, [("user", ts(2026, 11, 16, 10, 0))]),
+    ])
+    weeks = collect_week(db, START, END)
+    md = render_markdown(weeks, START, END)
+    assert "Ana\\|B" in md
+    assert "[l1 l2](https://ia.santiagoapostol.net/c/c1)" in md
+
+
+def test_markdown_nombre_null_no_imprime_none(tmp_path):
+    db = make_webui_db(tmp_path / "webui.db", [user("u1", None, "ana@edu.es")], [])
+    weeks = collect_week(db, START, END)
+    md = render_markdown(weeks, START, END)
+    assert "|  (ana@edu.es) | 0 | 0 | 0 | — |" in md
+    assert "None" not in md
 
 
 def test_csv(tmp_path):
@@ -124,6 +142,18 @@ def test_main_all_models(tmp_path, capsys):
 def test_main_errores(tmp_path):
     assert main(["--db", str(tmp_path / "noexiste.db"), "--week", "2026-W47"]) == 2
     assert main(["--db", str(tmp_path / "noexiste.db"), "--week", "2026-W99"]) == 2
+
+
+def test_main_semana_invalida_con_bd_valida(tmp_path):
+    db = _db(tmp_path)
+    assert main(["--db", str(db), "--week", "2026-W99"]) == 2
+    assert main(["--db", str(db), "--week", ""]) == 2
+
+
+def test_main_bd_corrupta(tmp_path):
+    basura = tmp_path / "basura.db"
+    basura.write_text("esto no es una BD", encoding="utf-8")
+    assert main(["--db", str(basura), "--week", "2026-W47"]) == 2
 
 
 def test_make_tutor_report():

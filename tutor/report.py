@@ -197,9 +197,16 @@ def iso_week_bounds(week: str, tz: str = DEFAULT_TZ) -> tuple[datetime, datetime
     return start, start + timedelta(days=7)
 
 
+def _escape_cell(value: object) -> str:
+    """None -> '', saltos de línea (\r, \n) -> espacio, '|' -> '\\|'."""
+    if value is None:
+        return ""
+    return str(value).replace("\r", " ").replace("\n", " ").replace("|", chr(92) + "|")
+
+
 def _link(summary: ChatSummary) -> str:
-    title = summary.title or "(sin título)"
-    return f"[{title.replace('|', chr(92) + '|')}]({summary.url})"
+    title = _escape_cell(summary.title) or "(sin título)"
+    return f"[{title}]({summary.url})"
 
 
 def render_markdown(weeks: list[StudentWeek], start: datetime, end: datetime) -> str:
@@ -212,8 +219,8 @@ def render_markdown(weeks: list[StudentWeek], start: datetime, end: datetime) ->
     for w in weeks:
         longest = "<br>".join(_link(s) for s in w.longest) or "—"
         lines.append(
-            f"| {w.name} ({w.email}) | {w.sessions} | {w.days_active} "
-            f"| {w.user_messages} | {longest} |"
+            f"| {_escape_cell(w.name)} ({_escape_cell(w.email)}) | {w.sessions} "
+            f"| {w.days_active} | {w.user_messages} | {longest} |"
         )
     sin_actividad = sum(1 for w in weeks if w.sessions == 0)
     lines += ["", f"Sin actividad: {sin_actividad} de {len(weeks)} alumnos."]
@@ -267,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        week = args.week or _previous_iso_week(DEFAULT_TZ)
+        week = args.week if args.week is not None else _previous_iso_week(DEFAULT_TZ)
         start, end = iso_week_bounds(week)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -279,13 +286,17 @@ def main(argv: list[str] | None = None) -> int:
             args.db, start, end,
             model_ids=model_ids, base_url=args.base_url,
         )
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, sqlite3.DatabaseError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     text = render_markdown(weeks, start, end) if args.format == "md" else render_csv(weeks)
     if args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
+        try:
+            Path(args.out).write_text(text, encoding="utf-8")
+        except OSError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
     else:
         sys.stdout.write(text)
     return 0
