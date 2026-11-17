@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
+import csv
+import io
 import json
+import re
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import datetime
+from datetime import timedelta
 from pathlib import Path
 from typing import Iterable
 from zoneinfo import ZoneInfo
@@ -172,3 +178,118 @@ def collect_week(
             )
         )
     return result
+
+
+_WEEK_RE = re.compile(r"^(\d{4})-W(\d{2})$")
+
+
+def iso_week_bounds(week: str, tz: str = DEFAULT_TZ) -> tuple[datetime, datetime]:
+    """'2026-W47' -> (lunes 00:00, lunes siguiente 00:00) en tz. Formato inválido -> ValueError."""
+    m = _WEEK_RE.match(week)
+    if not m:
+        raise ValueError(f"Semana ISO inválida: {week!r} (esperaba AAAA-Wnn)")
+    year, week_num = int(m.group(1)), int(m.group(2))
+    tzinfo = ZoneInfo(tz)
+    try:
+        start = datetime.fromisocalendar(year, week_num, 1).replace(tzinfo=tzinfo)
+    except ValueError as exc:
+        raise ValueError(f"Semana ISO inválida: {week!r}") from exc
+    return start, start + timedelta(days=7)
+
+
+def _link(summary: ChatSummary) -> str:
+    title = summary.title or "(sin título)"
+    return f"[{title.replace('|', chr(92) + '|')}]({summary.url})"
+
+
+def render_markdown(weeks: list[StudentWeek], start: datetime, end: datetime) -> str:
+    lines = [
+        f"# Uso del tutor — semana del {start:%d/%m/%Y} al {end - timedelta(days=1):%d/%m/%Y}",
+        "",
+        "| Alumno | Sesiones | Días activos | Mensajes | Conversaciones más largas |",
+        "|---|---|---|---|---|",
+    ]
+    for w in weeks:
+        longest = "<br>".join(_link(s) for s in w.longest) or "—"
+        lines.append(
+            f"| {w.name} ({w.email}) | {w.sessions} | {w.days_active} "
+            f"| {w.user_messages} | {longest} |"
+        )
+    sin_actividad = sum(1 for w in weeks if w.sessions == 0)
+    lines += ["", f"Sin actividad: {sin_actividad} de {len(weeks)} alumnos."]
+    return "\n".join(lines) + "\n"
+
+
+def render_csv(weeks: list[StudentWeek]) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["email", "nombre", "sesiones", "dias_activos", "mensajes",
+         "chat1", "chat2", "chat3"]
+    )
+    for w in weeks:
+        urls = [s.url for s in w.longest] + [""] * 3
+        writer.writerow(
+            [w.email, w.name, w.sessions, w.days_active, w.user_messages,
+             *urls[:3]]
+        )
+    return buf.getvalue()
+
+
+def _previous_iso_week(tz: str) -> str:
+    now = datetime.now(ZoneInfo(tz))
+    iso_now = now.isocalendar()
+    monday = datetime.fromisocalendar(iso_now.year, iso_now.week, 1).replace(
+        tzinfo=ZoneInfo(tz)
+    )
+    prev = monday - timedelta(days=7)
+    iso = prev.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tutor.report",
+        description="Informe semanal de uso del tutor (solo lectura).",
+    )
+    parser.add_argument("--db", required=True, help="ruta a webui.db")
+    parser.add_argument(
+        "--week", default=None,
+        help="semana ISO (p. ej. 2026-W47); por defecto la anterior a la actual",
+    )
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help=f"modelo a contar (por defecto {DEFAULT_MODEL})")
+    parser.add_argument("--all-models", action="store_true",
+                        help="no filtrar por modelo")
+    parser.add_argument("--format", choices=("md", "csv"), default="md")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--out", default=None, help="fichero de salida (UTF-8)")
+    args = parser.parse_args(argv)
+
+    try:
+        week = args.week or _previous_iso_week(DEFAULT_TZ)
+        start, end = iso_week_bounds(week)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    model_ids = None if args.all_models else (args.model,)
+    try:
+        weeks = collect_week(
+            args.db, start, end,
+            model_ids=model_ids, base_url=args.base_url,
+        )
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    text = render_markdown(weeks, start, end) if args.format == "md" else render_csv(weeks)
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
