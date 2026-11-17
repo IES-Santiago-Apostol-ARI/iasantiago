@@ -13,7 +13,7 @@ TUTOR := COMPOSE_FILE=docker-compose.yml:docker-compose.tutor.yml
         watcher-on watcher-off \
         publish-docs unpublish-docs \
         eval-sample eval-file eval-nightly \
-        ingest web tutor tutor-off
+        ingest web tutor tutor-off tutor-report
 
 
 gen-env:
@@ -221,3 +221,11 @@ eval-file:
 # Lanza el service systemd de evaluación nocturna ahora mismo
 eval-nightly:
 	sudo systemctl start iasantiago-rag-eval.service && sudo journalctl -u iasantiago-rag-eval.service -n 50 --no-pager
+
+# ------- Informe semanal del tutor (Fase 12) -------
+# Uso: make tutor-report [WEEK=2026-W47] [TUTOR_DB=openwebui/data/webui.db]
+# Por defecto lee la BD del modo tutor y la semana pasada. Solo lectura.
+TUTOR_DB ?= tutor/data/webui.db
+tutor-report:
+	@sudo python3 -m tutor.report --db $(TUTOR_DB) $(if $(WEEK),--week $(WEEK)) --out tutor-report-$(or $(WEEK),ultima).md
+	@echo "[OK] tutor-report-$(or $(WEEK),ultima).md"
