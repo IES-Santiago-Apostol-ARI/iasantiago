@@ -91,18 +91,28 @@ def test_main_todo_pasa(server, capsys):
     assert len(server.requests) == 4
     tutor_req = server.requests[0]
     system = next(m for m in tutor_req["messages"] if m["role"] == "system")
-    if PROMPT_FILE.exists():
-        assert system["content"] == PROMPT_FILE.read_text(encoding="utf-8")
-    else:
-        pytest.skip("TutorInformatica.txt no existe")
+    assert system["content"] == PROMPT_FILE.read_text(encoding="utf-8")
     assert tutor_req["temperature"] == 0
+    assert tutor_req["stream"] is False
+    assert tutor_req["max_tokens"] == 600
     judge_req = server.requests[1]
+    assert judge_req["max_tokens"] == 200
     user = next(m for m in judge_req["messages"] if m["role"] == "user")
     case1 = json.loads(CASES.read_text(encoding="utf-8"))[0]
     assert case1["pass_if"] in user["content"]
     assert "¿Qué has probado?" in user["content"]
     out = capsys.readouterr().out
     assert "Passed: 2/2" in out
+
+
+def test_only_invalido_o_vacio():
+    mod = _load()
+    with pytest.raises(SystemExit) as e:
+        mod.main(["--only", "abc"])
+    assert e.value.code == 2
+    with pytest.raises(SystemExit) as e:
+        mod.main(["--only", "99"])
+    assert e.value.code == 2
 
 
 def test_main_falla_si_un_caso_falla(server, capsys):

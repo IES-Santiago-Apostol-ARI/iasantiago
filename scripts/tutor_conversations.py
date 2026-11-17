@@ -159,8 +159,13 @@ def main(argv: list[str] | None = None) -> int:
     system_prompt = Path(args.prompt_file).read_text(encoding="utf-8")
     cases = load_cases(args.cases)
     if args.only:
-        wanted = {int(x) for x in args.only.split(",") if x.strip()}
+        try:
+            wanted = {int(x) for x in args.only.split(",") if x.strip()}
+        except ValueError:
+            parser.error("--only espera ids enteros separados por comas")
         cases = [c for c in cases if c["id"] in wanted]
+        if not cases:
+            parser.error("--only no coincide con ningún caso")
 
     results = [run_case(case, system_prompt, args) for case in cases]
 
