@@ -3,13 +3,16 @@ ENV_FILE := .env
 BACKUP_DIR := /opt/iasantiago-rag/backups
 DATE := $(shell date +%F_%H%M%S)
 
+# Modo tutor (docker-compose.tutor.yml): segundo Open WebUI que sustituye al normal.
+TUTOR := COMPOSE_FILE=docker-compose.yml:docker-compose.tutor.yml
+
 .PHONY: gen-env up down stop seed reset bench \
         status logs tail rag-restart \
         backup backup-topics backup-qdrant backup-state restore \
         watcher-on watcher-off \
         publish-docs unpublish-docs \
         eval-sample eval-file eval-nightly \
-        ingest web
+        ingest web tutor tutor-off
 
 
 gen-env:
@@ -63,14 +66,25 @@ rag-restart:
 
 # ------- Modo ingestión / web -------
 ingest:
+	$(TUTOR) docker compose stop tutor-oauth2-proxy tutor-webui || true
 	@echo "Deteniendo vllm, rag-api, openwebui y lanzando ingestor..."
 	docker compose stop vllm rag-api openwebui oauth2-proxy || true
 	docker compose --profile ingest up -d ingestor
 
 web:
+	$(TUTOR) docker compose stop tutor-oauth2-proxy tutor-webui || true
 	@echo "Deteniendo ingestor y lanzando servicios web..."
 	docker compose stop ingestor || true
 	docker compose up -d oauth2-proxy openwebui rag-api vllm qdrant
+
+tutor:
+	@echo "Parando el sitio normal y lanzando el modo tutor..."
+	docker compose stop ingestor oauth2-proxy openwebui || true
+	$(TUTOR) docker compose up -d qdrant vllm rag-api tutor-webui tutor-oauth2-proxy
+
+tutor-off:
+	@echo "Parando el modo tutor y volviendo al sitio normal..."
+	$(MAKE) web
 
 # ------- Backups -------
 backup: backup-topics backup-qdrant backup-state

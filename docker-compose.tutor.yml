@@ -1,0 +1,119 @@
+# Tutor mode for the iasantiago stack (https://github.com/IES-Santiago-Apostol-ARI/iasantiago).
+#
+# This file is an ADD-ON to that repository's docker-compose.yml, not a stack of
+# its own. It lives next to docker-compose.yml; always load it together with
+# the main file, so vllm, qdrant and rag-api are the very same containers:
+#
+#   export COMPOSE_FILE=docker-compose.yml:docker-compose.tutor.yml
+#
+#   # normal site -> tutor
+#   docker compose stop oauth2-proxy openwebui
+#   docker compose up -d qdrant vllm rag-api tutor-webui tutor-oauth2-proxy
+#
+#   # tutor -> normal site
+#   docker compose stop tutor-oauth2-proxy tutor-webui
+#   docker compose up -d oauth2-proxy openwebui
+#
+# Reused without change: vLLM and the loaded model, Qdrant, rag-api, the Docker
+# network, .env, oauth2-proxy.cfg and its templates, the Google OAuth client,
+# nginx on the host, the TLS certificate and the public URL.
+#
+# The two tutor services take the same host ports as the ones they replace
+# (127.0.0.1:8080 and 127.0.0.1:4180). That is what lets nginx stay untouched,
+# and it is also why the normal site and the tutor cannot run at the same time.
+# Use "make tutor" / "make tutor-off" (see README, "Modo tutor").
+
+services:
+  tutor-webui:
+    image: ghcr.io/open-webui/open-webui:cuda
+    container_name: tutor-webui
+    # "no" on purpose: after a reboot or the nightly stop, the server comes back
+    # as the normal site (the systemd unit starts openwebui and oauth2-proxy).
+    # With "unless-stopped" both Open WebUI containers would fight for port 8080.
+    restart: "no"
+    environment:
+      - TZ=${TZ}
+      # --- same as the openwebui service of the main file ---
+      - OPENAI_API_BASE_URLS=http://vllm:8000/v1
+      - OPENAI_API_KEYS=${OPENAI_API_KEY}
+      - TASK_MODEL_EXTERNAL=${VLLM_SERVED_MODEL:-santiago}
+      - ENABLE_OLLAMA_API=false
+      - ENABLE_ARENA=false
+      - WEBUI_URL=https://ia.santiagoapostol.net
+      - WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Forwarded-Email
+      - WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Ow-Name
+      - WEBUI_AUTH_COOKIE_AGE=604800
+      - WEBUI_SESSION_COOKIE_AGE=604800
+      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
+      - WEBUI_AUTH_COOKIE_SAME_SITE=lax
+      - WEBUI_SESSION_COOKIE_SECURE=true
+      - WEBUI_AUTH_COOKIE_SECURE=true
+      # --- tutor only ---
+      - WEBUI_NAME=Tutor Informática
+      # Anyone who passes the Google domain check enters as a normal user.
+      - DEFAULT_USER_ROLE=user
+      - ENABLE_COMMUNITY_SHARING=false
+      # The teacher (admin) can read and export student chats.
+      - ENABLE_ADMIN_CHAT_ACCESS=true
+      - ENABLE_ADMIN_EXPORT=true
+      # Students cannot change the system prompt, delete chats or use
+      # temporary (unlogged) chats.
+      - USER_PERMISSIONS_CHAT_CONTROLS=false
+      - USER_PERMISSIONS_CHAT_DELETE=false
+      - USER_PERMISSIONS_CHAT_TEMPORARY=false
+      # Students cannot build their own models, prompts or tools.
+      - USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS=false
+      - USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS=false
+      - USER_PERMISSIONS_WORKSPACE_PROMPTS_ACCESS=false
+      - USER_PERMISSIONS_WORKSPACE_TOOLS_ACCESS=false
+    ports:
+      # Localhost only, as in the main file: Open WebUI trusts X-Forwarded-Email,
+      # so exposing it to the LAN would let anyone impersonate any user.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Separate database: tutor users, chats and settings live here.
+      - ./tutor/data:/app/backend/data
+      # Same branding files as the main site.
+      - ./openwebui/custom/apple-touch-icon.png:/app/backend/open_webui/static/apple-touch-icon.png:ro
+      - ./openwebui/custom/custom.css:/app/backend/open_webui/static/custom.css:ro
+      - ./openwebui/custom/favicon-96x96.png:/app/backend/open_webui/static/favicon-96x96.png:ro
+      - ./openwebui/custom/favicon.ico:/app/backend/open_webui/static/favicon.ico:ro
+      - ./openwebui/custom/favicon.png:/app/backend/open_webui/static/favicon.png:ro
+      - ./openwebui/custom/logo.png:/app/backend/open_webui/static/logo.png:ro
+      - ./openwebui/custom/splash.png:/app/backend/open_webui/static/splash.png:ro
+    depends_on:
+      rag-api:
+        condition: service_healthy
+
+  tutor-oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    container_name: tutor-oauth2-proxy
+    restart: "no"
+    ports:
+      - "127.0.0.1:4180:4180"
+    volumes:
+      - ./oauth2-proxy/oauth2-proxy.cfg:/etc/oauth2-proxy/oauth2-proxy.cfg:ro
+      - ./oauth2-proxy/templates:/etc/oauth2-proxy/templates:ro
+    environment:
+      - TZ=${TZ}
+    # Identical to the main oauth2-proxy except for --upstream. Same client,
+    # same cookie secret and same redirect URL, so a session opened on the
+    # normal site is still valid here and Google needs no new configuration.
+    command:
+      - --config=/etc/oauth2-proxy/oauth2-proxy.cfg
+      - --cookie-secret=${OAUTH2_COOKIE_SECRET}
+      - --client-id=${OAUTH2_CLIENT_ID}
+      - --client-secret=${OAUTH2_CLIENT_SECRET}
+      - --redirect-url=${OAUTH2_REDIRECT_URL}
+      - --email-domain=${OAUTH2_EMAIL_DOMAINS}
+      - --code-challenge-method=S256
+      - --provider=oidc
+      - --oidc-issuer-url=https://accounts.google.com
+      - --http-address=0.0.0.0:4180
+      - --upstream=http://tutor-webui:8080
+      - --custom-templates-dir=/etc/oauth2-proxy/templates
+      - --cookie-expire=168h
+      - --cookie-refresh=0h
+    depends_on:
+      tutor-webui:
+        condition: service_healthy
