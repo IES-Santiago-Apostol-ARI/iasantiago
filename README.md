@@ -659,6 +659,25 @@ cat /opt/iasantiago-rag/eval_summary.csv
     └── logrotate-telemetry
 ```
 
+## Modo tutor
+
+El modo tutor es un segundo Open WebUI (`tutor-webui` + `tutor-oauth2-proxy`) con
+base de datos propia en `tutor/data/`, que sustituye al sitio normal mientras está
+activo: mismos puertos `127.0.0.1:8080`/`4180`, misma URL y mismo login de Google.
+
+- `make tutor` lo enciende y `make tutor-off` vuelve al sitio normal. Al cambiar de
+  modo, `vllm`, `qdrant` y `rag-api` no se recrean.
+- `make ingest` y `make web` paran el modo tutor si está activo.
+- Los contenedores del tutor tienen `restart: "no"`: tras reiniciar el servidor
+  vuelve el sitio normal y hay que repetir `make tutor`.
+
+Para crear la base de datos la primera vez, con el sitio parado, copia la del sitio
+normal (`sudo cp -a openwebui/data tutor/data`) o crea una vacía (`mkdir -p tutor/data`;
+el primero que entra es administrador).
+
+El workspace model del tutor se crea con id `tutor-ari`, base `santiago`, y el prompt
+de `rag-api/templates/system_prompts/per_topic/TutorInformatica.txt`.
+
 ## Resolución de Problemas
 
 ### 502 Bad Gateway en el navegador
@@ -830,22 +849,3 @@ GNU GENERAL PUBLIC LICENSE V3
 
 Para problemas o preguntas:
 - Issues: https://github.com/jredrejo/iasantiago/issues
-
-## Modo tutor
-
-El modo tutor es un segundo Open WebUI (`tutor-webui` + `tutor-oauth2-proxy`) con
-base de datos propia en `tutor/data/`, que sustituye al sitio normal mientras está
-activo: mismos puertos `127.0.0.1:8080`/`4180`, misma URL y mismo login de Google.
-
-- `make tutor` lo enciende y `make tutor-off` vuelve al sitio normal. Al cambiar de
-  modo, `vllm`, `qdrant` y `rag-api` no se recrean.
-- `make ingest` y `make web` paran el modo tutor si está activo.
-- Los contenedores del tutor tienen `restart: "no"`: tras reiniciar el servidor
-  vuelve el sitio normal y hay que repetir `make tutor`.
-
-Para crear la base de datos la primera vez, con el sitio parado, copia la del sitio
-normal (`sudo cp -a openwebui/data tutor/data`) o crea una vacía (`mkdir -p tutor/data`;
-el primero que entra es administrador).
-
-El workspace model del tutor se crea con id `tutor-ari`, base `santiago`, y el prompt
-de `rag-api/templates/system_prompts/per_topic/TutorInformatica.txt`.
