@@ -188,3 +188,64 @@ def test_orden_por_email(tmp_path):
     db = make_webui_db(tmp_path / "webui.db", [zoe, ALUMNO, bob], [])
     result = collect_week(db, START, END)
     assert [s.email for s in result] == ["ana@edu.es", "bob@edu.es", "zoe@edu.es"]
+
+
+def test_model_ids_vacio_cuenta_todos(tmp_path):
+    db = make_webui_db(tmp_path / "webui.db", [ALUMNO], [
+        chat("c1", "u1", "Otro modelo", ("programacion",), [
+            ("user", ts(2026, 11, 16, 10, 0)),
+        ]),
+    ])
+    result = collect_week(db, START, END, model_ids=())
+    assert result[0].sessions == 1
+    assert result[0].user_messages == 1
+
+
+def test_archivados_cuentan(tmp_path):
+    db = make_webui_db(tmp_path / "webui.db", [ALUMNO], [
+        chat("c1", "u1", "Archivado", TUTOR,
+             [("user", ts(2026, 11, 16, 10, 0))], archived=1),
+    ])
+    result = collect_week(db, START, END)
+    assert result[0].sessions == 1
+    assert result[0].user_messages == 1
+
+
+def test_mensaje_sin_timestamp_se_ignora(tmp_path):
+    raw = json.dumps(
+        {
+            "models": list(TUTOR),
+            "history": {"messages": {
+                "m0": {"id": "m0", "role": "user", "content": "x"},
+                "m1": {"id": "m1", "role": "user", "content": "x",
+                       "timestamp": "ayer"},
+                "m2": {"id": "m2", "role": "user", "content": "x",
+                       "timestamp": ts(2026, 11, 16, 10, 0)},
+            }},
+        }
+    )
+    db = make_webui_db(tmp_path / "webui.db", [ALUMNO], [
+        {"id": "c1", "user_id": "u1", "title": "Sin ts", "raw_json": raw},
+    ])
+    result = collect_week(db, START, END)
+    assert result[0].sessions == 1
+    assert result[0].user_messages == 1
+
+
+def test_email_null_y_duplicado(tmp_path):
+    sin_email = user("u0", "Sin", None)
+    dup1 = user("u2", "Dua", "d@edu.es")
+    dup2 = user("u3", "Tre", "d@edu.es")
+    db = make_webui_db(tmp_path / "webui.db", [dup2, sin_email, dup1], [])
+    result = collect_week(db, START, END)
+    assert len(result) == 3
+    assert [s.email for s in result] == ["", "d@edu.es", "d@edu.es"]
+
+
+def test_ruta_con_espacios(tmp_path):
+    db = make_webui_db(tmp_path / "con espacio" / "webui.db", [ALUMNO], [
+        chat("c1", "u1", "Chat 1", TUTOR, [("user", ts(2026, 11, 16, 10, 0))]),
+    ])
+    result = collect_week(db, START, END)
+    assert result[0].sessions == 1
+    assert result[0].user_messages == 1

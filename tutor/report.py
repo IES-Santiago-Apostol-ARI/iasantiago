@@ -86,7 +86,7 @@ def collect_week(
     start_ts = start.timestamp()
     end_ts = end.timestamp()
 
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
         cur = conn.cursor()
         students = cur.execute(
@@ -100,9 +100,8 @@ def collect_week(
 
     # user_id -> info de acumulación del alumno
     by_user_id: dict[str, dict] = {}
-    by_email: dict[str, dict] = {}
     for user_id, email, name in students:
-        info = {
+        by_user_id[user_id] = {
             "email": email,
             "name": name,
             "sessions": 0,
@@ -110,8 +109,6 @@ def collect_week(
             "messages": 0,
             "chats": [],  # (user_messages, chat_id, title)
         }
-        by_user_id[user_id] = info
-        by_email[email] = info
 
     for chat_id, user_id, title, chat_json in chats:
         messages, models = _parse_chat(chat_json)
@@ -148,8 +145,12 @@ def collect_week(
         info["chats"].append((len(user_msgs_in_range), chat_id, title))
 
     result: list[StudentWeek] = []
-    for email in sorted(by_email):
-        info = by_email[email]
+    # Una fila por user_id (dos alumnos con el mismo email -> dos filas);
+    # orden por (email o '', user_id) para que email NULL no rompa el orden.
+    for user_id, info in sorted(
+        by_user_id.items(), key=lambda kv: ((kv[1]["email"] or ""), kv[0])
+    ):
+        email = info["email"] or ""
         # orden: user_messages desc, luego chat_id asc; máximo 3
         longest = sorted(info["chats"], key=lambda c: (-c[0], c[1]))[:3]
         result.append(
