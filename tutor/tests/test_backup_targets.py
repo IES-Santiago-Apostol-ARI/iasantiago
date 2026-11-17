@@ -80,6 +80,16 @@ def test_restore_no_restaura_chats_automaticamente():
     assert r.returncode == 0
     for line in r.stdout.splitlines():
         assert not (line.startswith("sudo tar") and "openwebui-X.tgz" in line)
+    # ...pero sí debe explicar cómo restaurarlos a mano
+    for s in ("openwebui-X.tgz", "tutor-X.tgz", "make tutor"):
+        assert s in r.stdout, f"falta la ayuda {s!r} en `make -n restore`"
+
+
+def test_macro_aborta_si_stop_falla():
+    r = make_n("backup-openwebui", "DATE=D")
+    assert r.returncode == 0
+    assert "no se pudo parar openwebui" in r.stdout
+    assert "no ha vuelto a arrancar" in r.stdout
 
 
 def test_macro_es_shell_valido():

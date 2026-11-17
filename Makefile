@@ -118,9 +118,9 @@ define backup_live_db
 	fi; \
 	sudo mkdir -p $(BACKUP_DIR); \
 	running=$$(docker inspect -f '{{.State.Running}}' $(1) 2>/dev/null || echo false); \
-	if [ "$$running" = true ]; then docker stop $(1) >/dev/null; fi; \
+	if [ "$$running" = true ]; then docker stop $(1) >/dev/null || { echo "[ERR] no se pudo parar $(1); no se copia $(2)"; exit 1; }; fi; \
 	sudo tar -C /opt/iasantiago-rag -czf $(BACKUP_DIR)/$(3)-$(DATE).tgz $(2); rc=$$?; \
-	if [ "$$running" = true ]; then docker start $(1) >/dev/null; fi; \
+	if [ "$$running" = true ]; then docker start $(1) >/dev/null || { echo "[ERR] $(1) no ha vuelto a arrancar"; rc=1; }; fi; \
 	if [ $$rc -eq 0 ]; then echo "[OK] $(2) -> $(BACKUP_DIR)/$(3)-$(DATE).tgz"; fi; \
 	exit $$rc
 endef
