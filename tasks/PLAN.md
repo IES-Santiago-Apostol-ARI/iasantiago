@@ -3,7 +3,7 @@
 Origen: `/datos/Clases/tutor/` (`PLAN.md`, `SUGGESTIONS.md`, `tutor-prompt.md`,
 `docker-compose.tutor.yml`, `loadtest.py`). Redactado el 2026-11-17.
 
-Estado: **APROBADO el 2026-11-17.**
+Estado: **APROBADO el 2026-11-17 — COMPLETADO el 2026-11-17** (73 tests en `tutor/tests`).
 
 ## 1. ¿Es compatible con iasantiago?
 
@@ -108,11 +108,11 @@ en `tutor` → marco aquí como hecha.
 | ID | Estado | Notas |
 |---|---|---|
 | T00 | hecha | Hecha por el orquestador (sin lógica) |
-| T01 | pendiente | |
-| T02 | pendiente | |
-| T03 | pendiente | |
-| T04 | pendiente | |
-| T05 | pendiente | |
-| T06 | pendiente | |
-| T07 | pendiente | |
-| T08 | pendiente | |
+| T01 | hecha | 1 ronda de revisión sin cambios |
+| T02 | hecha | 1 ronda: orden retrieve→chat, mensaje de error, caso sin system |
+| T03 | hecha | 1 ronda: sección README antes de Resolución de Problemas |
+| T04 | hecha | 1 ronda: no copia si `docker stop` falla; avisa y sale con error si no rearranca; tests de presencia |
+| T05 | hecha | 1 ronda: una fila por user_id (emails NULL/duplicados), URI `as_uri()`, +5 tests |
+| T06 | hecha | 1 ronda: escape de nombres/títulos (None, \|, saltos), `--week ''`, BD corrupta y `--out` no escribible → código 2 |
+| T07 | hecha | 1 ronda: test independiente del cwd + caso 304. `nginx -t` OK en contenedor con certificados de prueba; repetir en el servidor |
+| T08 | hecha | 1 ronda: `--only` validado (código 2), asserts de stream/max_tokens. Batería real pendiente en el servidor (aquí no hay vLLM) |
