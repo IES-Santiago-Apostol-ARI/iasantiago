@@ -1,6 +1,7 @@
 """Tests de tutor/docs_log.py (T07, Fase 12)."""
 
 from datetime import date
+from pathlib import Path
 
 from tutor.docs_log import DocAccess, distinct_openings, main, parse_line, summarize
 
@@ -81,8 +82,15 @@ def test_main_fichero_inexistente(capsys):
     assert capsys.readouterr().err
 
 
+def test_estado_304_cuenta():
+    acc = parse_line('2026-11-17T10:15:02+01:00 a@x "/docs/P/t.pdf" 304')
+    assert acc == DocAccess(email="a@x", document="P/t.pdf", day=date(2026, 11, 17))
+
+
 def test_nginx_conf_tiene_el_log_de_docs():
-    conf = open("nginx/nginx.conf", encoding="utf-8").read()
+    conf = (Path(__file__).resolve().parents[2] / "nginx" / "nginx.conf").read_text(
+        encoding="utf-8"
+    )
     assert "log_format docs" in conf
     assert "access_log /var/log/nginx/docs_access.log docs;" in conf
     assert conf.count("auth_request_set $ow_auth_email") >= 2
