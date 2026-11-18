@@ -351,8 +351,8 @@ igual: esta iteración no toca el prompt.
 | ID | Estado | Notas |
 |---|---|---|
 | E0 | hecha | Venv en `/datos/lab-wt/.venv-rag` (torch 2.15.0+cpu, fastapi 0.119.1). Base: 69 tests de `rag-api` en verde en un worktree limpio. En `/datos/iasantiago` falla uno (`test_rag_api_ya_no_puede_hablar_con_vllm`) por una carpeta `rag-api/chat/__pycache__` que quedó fuera de git, solo en esta máquina |
-| T13 | en curso | |
-| M1 | pendiente | |
+| T13 | hecha | Sin rondas. El revisor dejó notas menores sobre los tests (asserts de tiempo con sleeps de 0,03 s, una lista compartida entre tests). Ojo: `timings_ms.total` no incluye la espera en cola mientras el bucle de eventos está bloqueado; esa espera es el tiempo del cliente menos `total` |
+| M1 | en curso | |
 | T14 | pendiente | tras M1 |
 | M2 | pendiente | |
 
