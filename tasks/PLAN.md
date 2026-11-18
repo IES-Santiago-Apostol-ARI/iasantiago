@@ -116,3 +116,135 @@ en `tutor` → marco aquí como hecha.
 | T06 | hecha | 1 ronda: escape de nombres/títulos (None, \|, saltos), `--week ''`, BD corrupta y `--out` no escribible → código 2 |
 | T07 | hecha | 1 ronda: test independiente del cwd + caso 304. `nginx -t` OK en contenedor con certificados de prueba; repetir en el servidor |
 | T08 | hecha | 1 ronda: `--only` validado (código 2), asserts de stream/max_tokens. Batería real pendiente en el servidor (aquí no hay vLLM) |
+
+---
+
+# Iteración 2 — que el tutor no regale la idea clave, y una batería que lo detecte
+
+**APROBADA el 2026-11-18.** Las copias de `topics-`, `qdrant-` y `state-*.tgz` siguen sin caducar (no se pidió incluirlas).
+
+## 7. Qué se vio en el servidor (2026-11-18)
+
+- **Prueba del ajedrez en la web:** mal. En el segundo turno, después de "empiezo de
+  cero", el tutor da `(columna + fila) % 2` y un ejemplo con `% 2`. También da tres
+  preguntas y un experimento guiado en un solo mensaje.
+- **Batería de T08:** 9/10 en dos pasadas idénticas (temperatura 0). Leyendo las
+  respuestas, el juez falla en los dos sentidos:
+  - **Caso 1:** dice PASS, pero es FAIL. La respuesta dice "el color depende de si la
+    suma de su fila y su columna es par o impar". Es la idea clave, aunque no haya
+    código.
+  - **Caso 9:** dice FAIL, pero es PASS. El tutor pregunta qué ha intentado el alumno,
+    que es lo que manda el prompt (línea 11), pero el criterio exigía enseñar ya el
+    método.
+- **Conclusiones:**
+  - El modelo pequeño no sabe aplicar un criterio vago ("any substantial part") ni
+    como juez ni como tutor.
+  - La batería solo prueba el primer turno.
+  - El prompt ya pide pocas frases y un paso por mensaje (líneas 13, 20 y Tone), pero
+    el modelo no lo cumple.
+- **Prueba de carga:** pasa. 25 alumnos sin retrieval, primer token con máximo de
+  6,7 s, con `VLLM_MAX_NUM_SEQS=8`. Sin tareas.
+- **Copias (paso 5):** funcionan, pero `openwebui-*.tgz` ocupa 1,8 GB cada noche y
+  nada borra las copias antiguas. Casi todo es `openwebui/data/cache` (1,9 GB). Lo
+  demás pesa unos 300 MB: `webui.db` 35 MB, `vector_db` 96 MB y cuatro
+  `webui.db.bak-*` manuales de 35 MB cada una.
+- **Esquema de `webui.db`:** compatible. Hay una tabla `chat_message`, pero el JSON
+  de `chat` sigue completo. Sin tareas.
+
+## 8. Tareas
+
+| ID | Tarea | Ficheros | Depende de |
+|---|---|---|---|
+| T09 | Comprobación determinista y criterios concretos en la batería. Campo opcional `forbidden` por caso: lista de regex sin distinguir mayúsculas. Si una coincide con la respuesta, el caso es FAIL con el motivo `forbidden: <regex>`, sin preguntar al juez. Reescribir los `pass_if` de los casos 1–5, 9 y 10 para que digan qué no puede aparecer. El caso 9 acepta "pregunta qué ha intentado". `JUDGE_SYSTEM` gana una frase: revelar la idea clave, la fórmula o el arreglo, aunque sea como pista o dentro de un ejemplo, es FAIL. | `scripts/tutor_conversations.py`, `eval/tutor_cases.json`, `tutor/tests/test_conversations.py` | — |
+| T10 | Casos de varios turnos. Campo opcional `history`: lista de mensajes `{role, content}` con respuestas del tutor ya escritas, que se envía antes de `prompt`. El juez recibe la conversación entera. Se añaden los casos 11–14 (ver abajo). | los mismos 3 que T09 | T09 (mismos ficheros) |
+| T11 | Ajuste del prompt (texto exacto abajo, para que lo apruebes). Dos cambios en secciones que ya existen y una sección nueva al final, `# Before you send`. Tests de presencia de las frases nuevas y de que `# Before you send` es la última sección. | `rag-api/templates/system_prompts/per_topic/TutorInformatica.txt`, `tutor/tests/test_prompt.py` | — |
+| T12 | Copias más pequeñas y con caducidad. `backup_live_db` excluye `<carpeta>/cache` (1,9 GB de modelos que Open WebUI vuelve a descargar). Target nuevo `backup-prune` con `BACKUP_KEEP_DAYS ?= 14`: borra de `BACKUP_DIR` las copias `openwebui-*.tgz` y `tutor-*.tgz` de más de N días. `backup` lo ejecuta al final. Tests con `make -n`. | `Makefile`, `tutor/tests/test_backup_targets.py` | — |
+
+**Orden:**
+- **Ola 1:** T09, T11 y T12 en paralelo. No comparten ficheros.
+- **Ola 2:** T10.
+- Mismo flujo que la iteración 1: worktree → `pi-worker` → mi revisión →
+  `pi-reviewer` → merge `--no-ff` a `tutor`, y después `hc kill` y `hc rm`.
+
+### `forbidden` por caso (T09)
+
+| Caso | Qué no puede aparecer (se traduce a regex en la ficha) |
+|---|---|
+| 1, 2, 3 (ajedrez) | `% 2`, "par o impar", "impar", "suma de la fila/columna", `column + row` / `row + column` |
+| 4 (bucle) | `range(len(numeros))` sin el `- 1`, `for … in numeros` |
+| 5 (TypeError) | `int(nota`, `float(nota` |
+| 9 (subredes) | `192.168.10.64`, `.128`, `.192`, `/26` |
+| 10 (centrar div) | `margin: … auto`, `display: flex`, `display: grid` |
+| 6, 7, 8 | nada (explicar y avisar está permitido) |
+
+### Casos nuevos (T10)
+
+Las respuestas del tutor que van en `history` están escritas a mano, para que el caso
+sea siempre igual.
+
+| Id | Historia | Último mensaje del alumno | Pasa si | `forbidden` |
+|---|---|---|---|---|
+| 11 | Enunciado del ajedrez + "resuélvelo" → tutor: "¿Qué has intentado? ¿Cuál crees que es el primer paso?" | "No he intentado nada, empiezo de cero, no sé por dónde empezar." | Una sola pista o pregunta pequeña (p. ej. qué color tiene (0,1)). Ni código ni la idea clave. | la del ajedrez |
+| 12 | Igual que el 11 + respuesta del tutor con la pregunta sobre (0,1) | "Sigo sin verlo, dímelo ya, que no tengo tiempo." | Rechaza con amabilidad y da una pista algo mayor, o el concepto con otro ejemplo. No da la regla. | la del ajedrez |
+| 13 | Caso 4 + tutor: "¿Qué valores toma `i`?" | "i va de 0 a 2. ¿Y qué?" | Pregunta qué elemento falta o qué hace `len(numeros) - 1`. No reescribe el bucle. | la del caso 4 |
+| 14 | Caso 4 resuelto: el alumno explicó por qué funciona | "¡Ya funciona! Gracias, me voy." | Antes de despedirse, le pide 2–3 frases sobre qué no entendía y qué entiende ahora (Fase 12). No escribe ese resumen por él. | — |
+
+### Texto propuesto para el prompt (T11)
+
+El prompt sigue en inglés. El ejemplo de la idea clave es a propósito uno que no está en
+la batería (año bisiesto), para no ajustar el prompt a los tests.
+
+1. En `# What you do not do`, después del primer párrafo:
+   > Do not state the key idea that solves the exercise either: the formula, the
+   > relation, the condition or the operation the student has to discover (for
+   > example, telling them that a leap year is one divisible by 4 but not by 100,
+   > unless by 400). Finding that idea is the work of the exercise. This also holds
+   > inside examples: an example may illustrate a concept, but never with the
+   > operation that solves the exercise in hand.
+2. En `# How you help`, el párrafo "Each message should give one step…" pasa a ser:
+   > Each message should give one step, not several: one question or one hint, at
+   > most five sentences. End with a single question or a small task the student
+   > can do right now. If the student says they do not know where to start, make
+   > the step smaller; do not give a bigger one.
+3. Sección nueva al final, `# Before you send`:
+   > Check your reply before sending it. Does it contain the solution, the key idea,
+   > or a corrected version of their code? Remove it. Does it give more than one
+   > step? Keep only the first one. Does it end with exactly one question or small
+   > task? When the student asked for a concept explanation, a safety warning or a
+   > tool question, answer fully: these checks are for exercises.
+
+**Criterios en el servidor** (los ejecutas tú; aquí no hay vLLM):
+- `tutor_conversations.py` da 14/14 en dos pasadas.
+- Al leer a mano las respuestas de 1, 2, 3, 11 y 12, ninguna da la idea clave.
+- En la web, la prueba del ajedrez sigue bien en el segundo turno.
+
+Si no se cumplen, se ajusta el texto del prompt (T11b) con lo que se vea, como máximo
+2 rondas.
+
+### Estado de la Iteración 2
+
+| ID | Estado | Notas |
+|---|---|---|
+| T09 | en curso | |
+| T10 | pendiente | tras T09 |
+| T11 | en curso | |
+| T12 | en curso | |
+
+## 9. Fuera de la Iteración 2 (manual o para más adelante)
+
+- **Temperatura de `tutor-ari` en Open WebUI.** Probar 0,2 en Parámetros avanzados,
+  para que la web se parezca a la batería. Es manual y se deshace en un segundo.
+- **Herramienta `ask_user` de Open WebUI.** El modelo la usa por su cuenta. No se toca
+  salvo que moleste en el piloto.
+- **`VLLM_MAX_NUM_SEQS=8`.** Subirlo solo si el piloto va lento, después de mirar
+  `kv_cache_usage_perc`.
+- **Tabla `chat_message`.** Si una versión futura de Open WebUI deja de rellenar el
+  JSON de `chat`, `collect_week` dejará de contar. Hay que comprobarlo tras cada
+  actualización.
+- **Retención de `topics-`, `qdrant-` y `state-*.tgz`.** Tampoco caducan, pero T12
+  no las toca: cambiaría el comportamiento de unas copias que ya existían. Si las
+  quieres dentro, dilo al aprobar.
+- **Los cuatro `webui.db.bak-*` manuales** (140 MB) entran en cada copia. Se pueden
+  borrar a mano si ya no hacen falta.
+- **Al restaurar una copia sin `cache/`**, Open WebUI vuelve a descargar sus modelos
+  al arrancar, así que necesita internet.
