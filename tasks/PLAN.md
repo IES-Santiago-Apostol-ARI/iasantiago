@@ -346,6 +346,42 @@ con 15 alumnos da una espera total (retrieve + primer token) con mediana < 5 s y
 máximo < 10 s, sin fallos. Además, la batería del tutor y la prueba de la web siguen
 igual: esta iteración no toca el prompt.
 
+### Decisión tras M1 (PROPUESTA, pendiente de "aprobado")
+
+**CPU del servidor:** Intel Core Ultra 7 265, con 20 núcleos (8 P y 12 E) y sin
+hyperthreading. **No tiene AVX-512 ni AMX**, así que se descarta el reranker en bf16:
+en esta CPU sería más lento, no más rápido.
+
+**Lo medido:** el reranker se lleva el 90 % de cada búsqueda (~750 ms con 18
+fragmentos) y una sola búsqueda ya usa unos 11,5 de los 20 núcleos. Por tanto:
+
+- **Lo que más ayuda es reordenar menos fragmentos.** El rerank tarda más o menos en
+  proporción al número de fragmentos. Con 8 en lugar de 18 serían ~330 ms por
+  búsqueda: con 15 alumnos a la vez, unos 5 s de máximo **incluso en serie**.
+  - Para un tutor, 18 fragmentos además distraen: la Fase 5 del plan pedagógico ya
+    pedía bajar `top_k` en ese caso.
+  - La valve `top_k` del Filter es global, así que bajarla tocaría todas las
+    asignaturas. → **T15**.
+- **T14 sigue mereciendo la pena, con una ganancia de velocidad moderada.**
+  - Con núcleos híbridos, repartir los 20 núcleos entre 2 o 4 búsquedas con menos
+    hilos cada una suele rendir más que una búsqueda con todos.
+  - Además, `/healthz` deja de bloquearse.
+  - Se le añaden dos cosas:
+    - `TORCH_NUM_THREADS`, para que el número de búsquedas a la vez multiplicado por
+      los hilos de cada una no pase de los núcleos;
+    - la precarga del tokenizer al arrancar, para que la primera búsqueda no tarde
+      1,6 s.
+
+| ID | Tarea | Ficheros | Depende de |
+|---|---|---|---|
+| T15 | `top_k` por modelo en el Filter. Valve nueva `top_k_map` (JSON `{"<model_id o nombre>": N}`, por defecto `"{}"`) y método `_resolve_top_k(model) -> int` con este orden: `top_k_map[id]`, luego `top_k_map[name]`, luego `valves.top_k` si es > 0, y si no 0 (sin override). En `inlet`, `payload["top_k"]` se pone solo si el resultado es > 0. JSON inválido = `{}`. `version: 0.3.0`. Tests con un `aiohttp` falso que captura el `payload`: tutor-ari → 8, otra asignatura → sin `top_k`, valve global como reserva. | `openwebui/functions/rag_retrieval_filter.py`, `openwebui/tests/test_filter_top_k.py` (nuevo) | — |
+| T14 | Lo descrito en la sección 11, más: (1) si existe la variable de entorno `TORCH_NUM_THREADS`, en el `lifespan` se llama a `torch.set_num_threads(int(...))` y se registra en el log; si no existe, no cambia nada. (2) `ensure_models_loaded` también precarga `ModelCache.get_tokenizer()`. | `rag-api/app.py`, `rag-api/core/cache.py`, `rag-api/tests/test_retrieve_concurrency.py` | — |
+| M2 | (Tú, en el servidor) Pegar el Filter nuevo en Open WebUI y poner `top_k_map` = `{"tutor-ari": 8}`. Reiniciar `rag-api` con T14. Repetir la prueba de carga con 15 alumnos usando `--top-k 8` (si `loadtest_tutor.py` no lo admite, se añade en T14) con estas combinaciones de `RETRIEVE_MAX_CONCURRENCY` / `TORCH_NUM_THREADS`: 1/sin fijar, 2/10 y 4/5. | — | T14, T15 |
+
+**Orden:** T14 y T15 en paralelo (no comparten ficheros) → M2.
+
+**Se descarta:** el reranker en bf16, porque la CPU no tiene AVX-512 ni AMX.
+
 ### Estado de la Iteración 3
 
 | ID | Estado | Notas |
