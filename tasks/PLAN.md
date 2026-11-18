@@ -232,7 +232,22 @@ Si no se cumplen, se ajusta el texto del prompt (T11b) con lo que se vea, como m
 | T11b | en curso | Servidor (2026-11-18): 11/14 dos veces, con fugas reales en 1, 10 y 11 y ningún falso positivo de `forbidden`. El modelo (Qwen3.8-27B NVFP4, sin thinking) repite de memoria la solución del ajedrez. Segunda y última ronda: `# Hard rules` al principio y `# Examples` con respuestas buenas y malas. Aprobada por el profesor. **Hecha**, sin rondas. El worker tuvo que ajustar `test_prompt_un_paso_cinco_frases` porque la frase ahora sale dos veces; era un fallo de la ficha. `test_prompt_solo_anade_lineas` solo sirve antes del merge; después se salta. **Resultado en el servidor:** 11/14 dos veces, idénticas.
   - Mejora: pasan los casos 1 y 11 (desaparece la frase memorizada del ajedrez) y también el 2 y el 3.
   - Siguen fallando: el 5 (traduce el error antes de preguntar), el 10 (pregunta "¿qué propiedad usas… con márgenes automáticos?") y el 12 (bajo presión, en el 3.er turno, da `columna + fila`) |
-| T11c | hecha | Sin rondas. Falta validarla en el servidor. En la web, el primer mensaje abre con un sermón que repite las `# Hard rules`. Tercera ronda, aprobada por el profesor: no anunciar las reglas y un ejemplo de insistencia (caso 12) |
+| T11c | hecha | Sin rondas. **Servidor:** 12/14 y 13/14. El caso 5 falla siempre, de forma leve; el 1 falla en 1 de 2 pasadas, como pista y no como solución. **Web:** el primer mensaje va directo a la pista; cuando el alumno descubre la regla, pasa a la sintaxis (el operador resto) sin escribir el código. En la web, el primer mensaje abre con un sermón que repite las `# Hard rules`. Tercera ronda, aprobada por el profesor: no anunciar las reglas y un ejemplo de insistencia (caso 12) |
+
+### Cierre de la Iteración 2 (2026-11-18)
+
+El prompt queda cerrado para el piloto, tras tres rondas (T11, T11b y T11c).
+
+Limitaciones conocidas, que hay que vigilar en el informe semanal del piloto:
+- **Mensajes de error (caso 5):** el tutor traduce el error ("no se puede sumar un
+  `int` y un `str`") antes de preguntar. Sí pregunta después por el tipo de `nota` y
+  no da el arreglo. El criterio se mantiene estricto a propósito.
+- **Ejercicio del ajedrez (caso 1):** de vez en cuando apunta a "la suma de fila y
+  columna" como pista. El modelo tiene este ejercicio memorizado (es un ejercicio
+  muy conocido). Con ejercicios propios del curso no se ha visto.
+- **Pasadas no idénticas:** con temperatura 0, dos pasadas pueden dar resultados
+  distintos, porque vLLM agrupa las peticiones con las de otros usuarios. Hay que
+  ejecutar siempre la batería dos veces.
 
 ## 9. Fuera de la Iteración 2 (manual o para más adelante)
 
