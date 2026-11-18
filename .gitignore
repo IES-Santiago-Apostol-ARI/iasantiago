@@ -18,6 +18,7 @@ topics/
 */__pycache__/*
 *.md
 retrieval.jsonl
+eval/*.csv
 .claude/settings.local.json
 
 # Copias de Qdrant (1,3 GB) y PDFs apartados a mano de la ingesta (394 MB).
