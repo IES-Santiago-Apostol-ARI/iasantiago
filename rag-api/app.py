@@ -16,6 +16,7 @@ import contextlib
 import hashlib
 import logging
 import os
+import time
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
@@ -257,6 +258,7 @@ async def retrieve(
     usuario al escoger el modelo "- Generador"; la ruta `topic:X` que se retiró
     lo adivinaba con una regex de intención sobre el texto de la pregunta.
     """
+    t_start = time.perf_counter()
     user_ref = (
         hashlib.sha256(x_email.encode("utf-8")).hexdigest()[:12] if x_email else "anon"
     )
@@ -316,17 +318,27 @@ async def retrieve(
     else:
         context_token_limit = CTX_TOKENS_SOFT_LIMIT
 
+    t0 = time.perf_counter()
     retrieved, meta = choose_retrieval(
         req.topic, req.query, req.generative, final_topk_override=req.top_k
     )
+    t_retrieval = time.perf_counter() - t0
     logger.info(f"[/retrieve] Recuperados {len(retrieved)} chunks para '{req.topic}'")
 
+    t_rerank = 0.0
+    t_trim = 0.0
     if retrieved:
         if req.rerank:
+            t0 = time.perf_counter()
             retrieved = rerank_passages(req.query, retrieved, rerank_topk=None)
+            t_rerank = time.perf_counter() - t0
+        t0 = time.perf_counter()
         retrieved = soft_trim_context(retrieved, context_token_limit)
+        t_trim = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
     context_text, cited = attach_citations(retrieved, req.topic)
+    t_citations = time.perf_counter() - t0
 
     # `source` se conserva aunque ya sólo haya una ruta: las filas históricas de
     # `retrieval.jsonl` llevan "chat" (o ninguna, que el comparador cuenta como
@@ -359,6 +371,20 @@ async def retrieve(
         }
     )
 
+    t_total = time.perf_counter() - t_start
+    timings_ms = {
+        "retrieval": int(round(t_retrieval * 1000)),
+        "rerank": int(round(t_rerank * 1000)),
+        "trim": int(round(t_trim * 1000)),
+        "citations": int(round(t_citations * 1000)),
+        "total": int(round(t_total * 1000)),
+    }
+    logger.info(
+        "[/retrieve] tiempos ms: retrieval=%d rerank=%d trim=%d citations=%d total=%d topic=%s chunks=%d",
+        timings_ms["retrieval"], timings_ms["rerank"], timings_ms["trim"],
+        timings_ms["citations"], timings_ms["total"], req.topic, len(retrieved),
+    )
+
     return {
         "context": context_text,
         "citations": _build_citations(retrieved, req.topic),
@@ -370,6 +396,7 @@ async def retrieve(
             "final_topk": meta.get("final_topk"),
             "original_language": meta.get("original_language"),
             "context_token_limit": context_token_limit,
+            "timings_ms": timings_ms,
         },
     }
 
