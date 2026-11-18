@@ -328,23 +328,14 @@ decidir**.
 - **Si el reranker se lleva casi todo el tiempo y la CPU ya está saturada con un
   alumno**, T14 sola apenas mejorará la espera. Antes de T14 te propondría una de dos
   palancas de configuración, sin código:
-  - **(a) Reranker en GPU:** `RERANK_DEVICE=cuda`, bajando un poco
-    `VLLM_GPU_MEMORY_UTILIZATION` para dejarle sitio. Es lo más eficaz, pero quita
-    algo de KV cache a vLLM y obliga a reiniciarlo.
-    - El ingestor nunca corre a la vez que vLLM: `make ingest` para `vllm` y
-      `rag-api`. Así que mientras hay clase solo comparten la GPU vLLM y `rag-api`,
-      y el sitio para el reranker solo hay que quitárselo a vLLM.
-    - Para saber cuánto se le puede quitar, M1 también mira
-      `kv_cache_usage_perc` en `/metrics` durante la prueba con 25 alumnos.
-    - Datos de vLLM (log, 2026-11-18): `--gpu-memory-utilization=0.93`, KV cache de
-      226.599 tokens, que dan para 3,46 conversaciones de 65.536 tokens a la vez.
-    - El 7 % que vLLM deja fuera son unos 2,2 GB. Puede que el reranker (~1,1 GB en
-      fp32, ~0,6 GB en fp16, más ~0,4 GB del contexto CUDA) quepa **sin tocar vLLM**.
-      Hay que confirmarlo con `nvidia-smi` en M1.
-    - Si hubiera que quitarle ~1,5 GB a vLLM, `--max-model-len 65536` se mantiene:
-      la cifra de 3,46 bajaría pero seguiría claramente por encima de 1.
+  - **(a) Reranker en GPU: DESCARTADA** (decisión del profesor, 2026-11-18). No se
+    toca la memoria de vLLM, que también da servicio a opencode con contextos largos.
+    `nvidia-smi` marca 32.041 de 32.607 MiB usados: no hay hueco libre en la GPU.
   - **(b) Menos candidatos que reordenar:** valve `top_k` del Filter. Es más
     barato, pero puede empeorar las citas.
+  - **(c) Reranker más ligero en CPU:** limitar la longitud de cada pasaje
+    (`max_length` del tokenizer) o ajustar los hilos de torch. Hay que comprobar
+    con `eval_offline` que el orden de los fragmentos no empeora.
 - **Si hay núcleos libres o mucho tiempo en Qdrant**, T14 es la solución directa.
 - En cualquier caso T14 merece la pena por otro motivo: hoy una ráfaga de búsquedas
   deja a `/healthz` sin responder, y un healthcheck de 5 s puede marcar `rag-api`
