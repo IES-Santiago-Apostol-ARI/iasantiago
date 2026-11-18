@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 ENV_FILE := .env
 BACKUP_DIR ?= /opt/iasantiago-rag/backups
+BACKUP_KEEP_DAYS ?= 14
 DATE := $(shell date +%F_%H%M%S)
 
 # Modo tutor (docker-compose.tutor.yml): segundo Open WebUI que sustituye al normal.
@@ -9,7 +10,7 @@ TUTOR := COMPOSE_FILE=docker-compose.yml:docker-compose.tutor.yml
 .PHONY: gen-env up down stop seed reset bench \
         status logs tail rag-restart \
         backup backup-topics backup-qdrant backup-state \
-        backup-openwebui backup-tutor restore \
+        backup-openwebui backup-tutor backup-prune restore \
         watcher-on watcher-off \
         publish-docs unpublish-docs \
         eval-sample eval-file eval-nightly \
@@ -89,6 +90,7 @@ tutor-off:
 
 # ------- Backups -------
 backup: backup-topics backup-qdrant backup-state backup-openwebui backup-tutor
+	@$(MAKE) --no-print-directory backup-prune
 	@echo "Backup completo en $(BACKUP_DIR)/full-$(DATE)"
 
 backup-topics:
@@ -119,7 +121,7 @@ define backup_live_db
 	sudo mkdir -p $(BACKUP_DIR); \
 	running=$$(docker inspect -f '{{.State.Running}}' $(1) 2>/dev/null || echo false); \
 	if [ "$$running" = true ]; then docker stop $(1) >/dev/null || { echo "[ERR] no se pudo parar $(1); no se copia $(2)"; exit 1; }; fi; \
-	sudo tar -C /opt/iasantiago-rag -czf $(BACKUP_DIR)/$(3)-$(DATE).tgz $(2); rc=$$?; \
+	sudo tar -C /opt/iasantiago-rag --exclude=$(2)/cache -czf $(BACKUP_DIR)/$(3)-$(DATE).tgz $(2); rc=$$?; \
 	if [ "$$running" = true ]; then docker start $(1) >/dev/null || { echo "[ERR] $(1) no ha vuelto a arrancar"; rc=1; }; fi; \
 	if [ $$rc -eq 0 ]; then echo "[OK] $(2) -> $(BACKUP_DIR)/$(3)-$(DATE).tgz"; fi; \
 	exit $$rc
@@ -130,6 +132,16 @@ backup-openwebui:
 
 backup-tutor:
 	$(call backup_live_db,tutor-webui,tutor/data,tutor)
+
+# Borra las copias de chats de más de BACKUP_KEEP_DAYS días. Solo openwebui- y
+# tutor-; las de topics, qdrant y state no caducan.
+backup-prune:
+	@case "$(BACKUP_KEEP_DAYS)" in ''|*[!0-9]*) \
+	    echo "[ERR] BACKUP_KEEP_DAYS debe ser un número de días: '$(BACKUP_KEEP_DAYS)'"; exit 1;; \
+	esac; \
+	if [ ! -d $(BACKUP_DIR) ]; then echo "[--] $(BACKUP_DIR) no existe, nada que borrar"; exit 0; fi; \
+	sudo find $(BACKUP_DIR) -maxdepth 1 -type f \( -name 'openwebui-*.tgz' -o -name 'tutor-*.tgz' \) -mtime +$(BACKUP_KEEP_DAYS) -print -delete; \
+	echo "[OK] copias de chats de más de $(BACKUP_KEEP_DAYS) días borradas de $(BACKUP_DIR)"
 
 # Uso:
 # make restore BACKUP=2025-10-10_023000
@@ -152,6 +164,7 @@ restore:
 	@echo "  sudo tar -C /opt/iasantiago-rag -xzf $(BACKUP_DIR)/openwebui-$(BACKUP).tgz"
 	@echo "  sudo tar -C /opt/iasantiago-rag -xzf $(BACKUP_DIR)/tutor-$(BACKUP).tgz"
 	@echo "  (el modo tutor no vuelve solo: make tutor)"
+	@echo "  (las copias no llevan cache/: Open WebUI la vuelve a descargar al arrancar)"
 	docker compose up -d
 
 # ------- Watcher on/off (override de comando en ingestor) -------
