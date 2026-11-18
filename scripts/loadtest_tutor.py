@@ -11,6 +11,10 @@ It needs Python 3 only, no extra packages. See tasks/PLAN.md and the tutor plan,
   RAG_KEY=<OPENAI_API_KEY from .env> python3 scripts/loadtest_tutor.py \
       --prompt-file rag-api/templates/system_prompts/per_topic/TutorInformatica.txt --topic Programming
 
+  # the same, but asking rag-api for only 8 fragments instead of the default
+  RAG_KEY=<OPENAI_API_KEY from .env> python3 scripts/loadtest_tutor.py \
+      --prompt-file rag-api/templates/system_prompts/per_topic/TutorInformatica.txt --topic Programming --top-k 8
+
 Each student does: (optional) POST /retrieve, then a streamed chat completion.
 The script goes straight to vLLM and rag-api, so it does not create users or
 chats in Open WebUI, and it does not measure Open WebUI's own overhead.
@@ -64,8 +68,11 @@ def student(i, args, system_prompt, start, results):
         content = question
         if args.topic:
             headers = {"Authorization": f"Bearer {args.rag_key}"}
+            retrieve_body = {"query": question, "topic": args.topic}
+            if args.top_k is not None:
+                retrieve_body["top_k"] = args.top_k
             with post_json(f"{args.rag_url}/retrieve",
-                           {"query": question, "topic": args.topic},
+                           retrieve_body,
                            headers, args.timeout) as resp:
                 context = json.load(resp).get("context") or ""
             r["retrieve_s"] = time.perf_counter() - t0
@@ -125,6 +132,8 @@ def main():
     p.add_argument("--prompt-file", help="system prompt, e.g. tutor-prompt.md")
     p.add_argument("--max-tokens", type=int, default=300)
     p.add_argument("--topic", help="call /retrieve with this topic before each chat")
+    p.add_argument("--top-k", type=int, default=None,
+                   help="top_k to send to /retrieve (only with --topic)")
     p.add_argument("--rag-url", default="http://127.0.0.1:8001")
     p.add_argument("--rag-key", default=os.environ.get("RAG_KEY", ""))
     p.add_argument("--timeout", type=int, default=180)
