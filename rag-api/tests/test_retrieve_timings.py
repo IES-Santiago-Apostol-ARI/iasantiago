@@ -88,7 +88,7 @@ def test_meta_lleva_los_tiempos(client, topics, fake_pipeline):
     r = client.post("/retrieve", json=_body(), headers=AUTH)
     assert r.status_code == 200
     timings = r.json()["meta"]["timings_ms"]
-    assert set(timings) == {"retrieval", "rerank", "trim", "citations", "total"}
+    assert set(timings) == {"queue", "retrieval", "rerank", "trim", "citations", "total"}
     for valor in timings.values():
         assert isinstance(valor, int)
         assert valor >= 0
@@ -123,7 +123,7 @@ def test_sin_resultados_rerank_y_trim_cero(client, topics, monkeypatch, fake_pip
     assert timings["rerank"] == 0
     assert timings["trim"] == 0
     # La clave sigue estando aunque todo sea cero.
-    assert set(timings) == {"retrieval", "rerank", "trim", "citations", "total"}
+    assert set(timings) == {"queue", "retrieval", "rerank", "trim", "citations", "total"}
 
 
 # ---------------------------------------------------------------- log
@@ -135,7 +135,7 @@ def test_linea_de_log(client, topics, fake_pipeline, caplog):
     assert r.status_code == 200
     mensajes = [rec.message for rec in caplog.records]
     assert any(
-        "[/retrieve] tiempos ms: retrieval=" in m
+        "[/retrieve] tiempos ms: queue=" in m
         and "total=" in m
         and "topic=Latin" in m
         for m in mensajes
