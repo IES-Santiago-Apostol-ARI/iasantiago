@@ -1,4 +1,7 @@
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_PATH = REPO_ROOT / "rag-api" / "templates" / "system_prompts" / "per_topic" / "TutorInformatica.txt"
@@ -23,6 +26,8 @@ def test_prompt_conserva_las_secciones():
         "# Course material",
         "# Honesty",
         "# Tone",
+        "# Hard rules",
+        "# Examples",
         "# Before you send",
     ):
         assert section in lines, f"falta la sección {section!r} en su propia línea"
@@ -60,7 +65,7 @@ def test_prompt_un_paso_cinco_frases():
     text = PROMPT_PATH.read_text(encoding="utf-8")
     idx_help = text.index("# How you help")
     idx_not = text.index("# What you do not do")
-    idx_frase = text.index("at most five sentences")
+    idx_frase = text.index("at most five sentences", idx_help)
     assert idx_help < idx_frase < idx_not
     assert "Each message should give one step, not several. End with a question" not in text
 
@@ -77,6 +82,54 @@ def test_prompt_termina_en_un_salto():
     text = PROMPT_PATH.read_text(encoding="utf-8")
     assert text.endswith("\n")
     assert not text.endswith("\n\n")
+
+
+def test_prompt_reglas_duras_al_principio():
+    text = PROMPT_PATH.read_text(encoding="utf-8")
+    idx_goal = text.index("Your goal is that the student learns")
+    idx_rules = text.index("# Hard rules")
+    idx_language = text.index("# Language")
+    assert idx_goal < idx_rules < idx_language
+    first_hash = next(line for line in text.splitlines() if line.startswith("# "))
+    assert first_hash == "# Hard rules"
+    assert "not as a hint, not inside a question, not inside an example" in text
+    assert "One step per message" in text
+
+
+def test_prompt_ejemplos_antes_de_la_revision():
+    text = PROMPT_PATH.read_text(encoding="utf-8")
+    idx_tone = text.index("# Tone")
+    idx_examples = text.index("# Examples")
+    idx_send = text.index("# Before you send")
+    assert idx_tone < idx_examples < idx_send
+    bloque = text[idx_examples:idx_send]
+    pos = -1
+    for frase in (
+        "es_bisiesto",
+        "Bad reply:",
+        "Good reply:",
+        "function Saludar()",
+        "Bad reply:",
+        "Good reply:",
+    ):
+        nuevo = bloque.index(frase, pos + 1)
+        assert nuevo > pos, f"{frase!r} no aparece en el orden esperado"
+        pos = nuevo
+    assert text.count("Why it is bad:") == 2
+
+
+def test_prompt_solo_anade_lineas():
+    ruta_rel = PROMPT_PATH.relative_to(REPO_ROOT).as_posix()
+    resultado = subprocess.run(
+        ["git", "diff", "--numstat", "tutor", "--", ruta_rel],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if resultado.returncode != 0 or not resultado.stdout.strip():
+        pytest.skip("sin diff de tutor contra el prompt")
+    borradas = resultado.stdout.split()[1]
+    assert borradas == "0", f"se borraron {borradas} líneas del prompt"
 
 
 def test_index_registra_el_tutor():
