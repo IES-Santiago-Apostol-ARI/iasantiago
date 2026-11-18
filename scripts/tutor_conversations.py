@@ -96,9 +96,24 @@ def parse_verdict(text: str) -> dict:
     return {"verdict": "ERROR", "reason": text[:200]}
 
 
+def render_history(history: list[dict]) -> str:
+    """Cada mensaje como 'Student: <content>' (role user) o 'Tutor: <content>'
+    (role assistant), unidos con '\n\n'. Lista vacía -> ''."""
+    parts = []
+    for m in history:
+        who = "Student" if m["role"] == "user" else "Tutor"
+        parts.append(f"{who}: {m['content']}")
+    return "\n\n".join(parts)
+
+
 def judge(vllm_url: str, model: str, case: dict, reply: str, timeout: int) -> dict:
     """Pide al modelo que juzgue la respuesta del tutor contra el criterio del caso."""
+    history = case.get("history")
+    prefix = (
+        f"Conversation so far:\n{render_history(history)}\n\n" if history else ""
+    )
     user = (
+        f"{prefix}"
         f"Student message:\n{case['prompt']}\n\n"
         f"Tutor reply:\n{reply}\n\n"
         f"Pass criterion:\n{case['pass_if']}"
@@ -128,11 +143,14 @@ def run_case(case: dict, system_prompt: str, args) -> dict:
     result = {"id": case["id"], "prompt": case["prompt"],
               "reply": "", "verdict": "ERROR", "reason": ""}
     try:
+        history = [{"role": m["role"], "content": m["content"]}
+                   for m in case.get("history", [])]
         result["reply"] = chat(
             args.vllm_url,
             args.model,
-            [{"role": "system", "content": system_prompt},
-             {"role": "user", "content": case["prompt"]}],
+            [{"role": "system", "content": system_prompt}]
+            + history
+            + [{"role": "user", "content": case["prompt"]}],
             args.timeout,
             args.max_tokens,
         )
