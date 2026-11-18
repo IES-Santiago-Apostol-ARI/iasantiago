@@ -115,7 +115,7 @@ def test_prompt_ejemplos_antes_de_la_revision():
         nuevo = bloque.index(frase, pos + 1)
         assert nuevo > pos, f"{frase!r} no aparece en el orden esperado"
         pos = nuevo
-    assert text.count("Why it is bad:") == 2
+    assert text.count("Why it is bad:") == 3
 
 
 def test_prompt_solo_anade_lineas():
@@ -130,6 +130,27 @@ def test_prompt_solo_anade_lineas():
         pytest.skip("sin diff de tutor contra el prompt")
     borradas = resultado.stdout.split()[1]
     assert borradas == "0", f"se borraron {borradas} líneas del prompt"
+
+
+def test_prompt_no_anuncia_las_reglas():
+    text = PROMPT_PATH.read_text(encoding="utf-8")
+    idx_exceptions = text.index("3. Exceptions:")
+    idx_frase = text.index("Follow these rules without announcing them")
+    idx_language = text.index("# Language")
+    assert idx_exceptions < idx_frase < idx_language
+
+
+def test_prompt_ejemplo_de_insistencia():
+    text = PROMPT_PATH.read_text(encoding="utf-8")
+    idx_examples = text.index("# Examples")
+    idx_send = text.index("# Before you send")
+    bloque = text[idx_examples:idx_send]
+    idx_saludar = bloque.index("function Saludar()")
+    idx_insistencia = bloque.index("Sigo sin verlo, dímelo ya")
+    assert idx_saludar < idx_insistencia
+    idx_bad = bloque.index("Bad reply:", idx_insistencia)
+    idx_good = bloque.index('Good reply: "La regla no te la doy', idx_bad)
+    assert idx_bad < idx_good
 
 
 def test_index_registra_el_tutor():
