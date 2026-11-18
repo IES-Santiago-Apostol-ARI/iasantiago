@@ -229,6 +229,7 @@ Si no se cumplen, se ajusta el texto del prompt (T11b) con lo que se vea, como m
 | T10 | hecha | Sin rondas. El orquestador corrigió el docstring ("14 conversaciones"). El worker reformateó las listas `forbidden` en varias líneas, con el mismo contenido |
 | T11 | hecha | Sin rondas. Texto del prompt idéntico al aprobado |
 | T12 | hecha | Sin rondas. El orquestador quitó una variable sin usar en un test |
+| T11b | en curso | Servidor (2026-11-18): 11/14 dos veces, con fugas reales en 1, 10 y 11 y ningún falso positivo de `forbidden`. El modelo (Qwen3.8-27B NVFP4, sin thinking) repite de memoria la solución del ajedrez. Segunda y última ronda: `# Hard rules` al principio y `# Examples` con respuestas buenas y malas. Aprobada por el profesor |
 
 ## 9. Fuera de la Iteración 2 (manual o para más adelante)
 
