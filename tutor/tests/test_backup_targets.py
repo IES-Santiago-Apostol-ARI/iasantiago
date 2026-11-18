@@ -180,7 +180,7 @@ def _make_backup_files(tmp_path, old=True):
 
 
 def test_prune_borra_solo_lo_viejo(tmp_path):
-    names = _make_backup_files(tmp_path, old=True)
+    _make_backup_files(tmp_path, old=True)
     # openwebui-b.tgz es reciente: no debe borrarse
     (tmp_path / "openwebui-b.tgz").write_text("x")
     r = _run_prune_recipe(tmp_path, "14")
