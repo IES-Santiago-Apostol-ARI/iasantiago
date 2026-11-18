@@ -390,7 +390,7 @@ fragmentos) y una sola búsqueda ya usa unos 11,5 de los 20 núcleos. Por tanto:
 | T13 | hecha | Sin rondas. El revisor dejó notas menores sobre los tests (asserts de tiempo con sleeps de 0,03 s, una lista compartida entre tests). Ojo: `timings_ms.total` no incluye la espera en cola mientras el bucle de eventos está bloqueado; esa espera es el tiempo del cliente menos `total` |
 | M1 | hecha | Medido el 2026-11-18. Con 1 alumno, `/retrieve` tarda 1,6 s (arranque en frío). Con 15: mediana 6,9 s y máximo 12,7 s, en escalera.<br>Cada búsqueda en caliente tarda unos 840 ms: **rerank ~750 ms (90 %)**, retrieval ~70 ms, trim ~5 ms y citations 0; reordena 18 fragmentos (`chunks=18`).<br>La primera búsqueda tras reiniciar lleva trim=504 ms (el tokenizer se carga la primera vez que se usa) y retrieval=380 ms.<br>`docker stats` marca ~1150 % de CPU **con una sola búsqueda en curso**: el reranker ya usa unos 11,5 núcleos |
 | T14 | en curso | |
-| T15 | en curso | |
+| T15 | hecha | Sin rondas. Nota del revisor: un valor 8.9 en `top_k_map` cuenta como 8 |
 | M2 | pendiente | |
 
 ## 12. Fuera de la Iteración 3
