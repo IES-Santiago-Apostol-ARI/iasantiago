@@ -1,4 +1,4 @@
-"""Tests para scripts/tutor_conversations.py (T08)."""
+"""Tests para scripts/tutor_conversations.py (T08, T09)."""
 
 import importlib.util
 import json
@@ -30,7 +30,7 @@ class _Handler(BaseHTTPRequestHandler):
             m.get("role") == "system" and "TUTOR_JUDGE" in str(m.get("content", ""))
             for m in body.get("messages", [])
         )
-        content = self.server.judge_reply if is_judge else "¿Qué has probado?"
+        content = self.server.judge_reply if is_judge else self.server.tutor_reply
         payload = json.dumps(
             {"choices": [{"message": {"content": content}}]}
         ).encode("utf-8")
@@ -49,6 +49,7 @@ def server():
     srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     srv.requests = []
     srv.judge_reply = '{"verdict": "PASS", "reason": "ok"}'
+    srv.tutor_reply = "¿Qué has probado?"
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     yield srv
@@ -133,6 +134,86 @@ def test_error_http_no_aborta(capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert out.count("ERROR") >= 2
+
+
+def test_forbidden_en_los_casos():
+    import re
+
+    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    by_id = {c["id"]: c for c in cases}
+    for cid in (1, 2, 3, 4, 5, 9, 10):
+        assert isinstance(by_id[cid].get("forbidden"), list)
+        assert by_id[cid]["forbidden"]
+    for cid in (6, 7, 8):
+        assert not by_id[cid].get("forbidden")
+    for c in cases:
+        for p in c.get("forbidden", []):
+            re.compile(p)
+    assert by_id[1]["forbidden"] == by_id[2]["forbidden"]
+    assert by_id[2]["forbidden"] == by_id[3]["forbidden"]
+
+
+def test_forbidden_detecta_fugas():
+    mod = _load()
+    cases = {c["id"]: c for c in json.loads(CASES.read_text(encoding="utf-8"))}
+    assert mod.check_forbidden(
+        "Piensa en esto: el color depende de si la suma de su fila y su columna es par o impar.",
+        cases[1]["forbidden"]) is not None
+    assert mod.check_forbidden(
+        "Prueba (columna + fila) % 2 y verás.", cases[1]["forbidden"]) is not None
+    assert mod.check_forbidden(
+        "for i in range(len(numeros)):\n    print(numeros[i])",
+        cases[4]["forbidden"]) is not None
+    assert mod.check_forbidden("Quita el - 1 del range.",
+                               cases[4]["forbidden"]) is not None
+    assert mod.check_forbidden("Usa nota = int(nota) antes de sumar.",
+                               cases[5]["forbidden"]) is not None
+    assert mod.check_forbidden("La primera subred es 192.168.10.64/26.",
+                               cases[9]["forbidden"]) is not None
+    assert mod.check_forbidden(".caja { margin: 0 auto; }",
+                               cases[10]["forbidden"]) is not None
+    assert mod.check_forbidden("Pon display: flex en el padre.",
+                               cases[10]["forbidden"]) is not None
+
+
+def test_forbidden_sin_falsos_positivos():
+    mod = _load()
+    cases = {c["id"]: c for c in json.loads(CASES.read_text(encoding="utf-8"))}
+    assert mod.check_forbidden(
+        "Te hago un par de preguntas. ¿Qué color tiene la casilla (0,1)? ¿Ves algún patrón?",
+        cases[1]["forbidden"]) is None
+    assert mod.check_forbidden(
+        "¿Qué valores toma i en range(len(numeros) - 1)?",
+        cases[4]["forbidden"]) is None
+    assert mod.check_forbidden(
+        "Dime: ¿miraste cuántos bits de host te quedaban tras el /24?",
+        cases[9]["forbidden"]) is None
+    assert mod.check_forbidden(
+        "Abre el inspector del navegador y mira qué reglas se aplican a .caja.",
+        cases[10]["forbidden"]) is None
+
+
+def test_forbidden_falla_sin_llamar_al_juez(server, capsys):
+    mod = _load()
+    server.tutor_reply = "La clave es (columna + fila) % 2"
+    rc = mod.main(["--vllm-url", _url(server), "--only", "1"])
+    assert rc == 1
+    assert len(server.requests) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert "forbidden:" in out
+
+
+def test_judge_system_idea_clave():
+    mod = _load()
+    assert "TUTOR_JUDGE" in mod.JUDGE_SYSTEM
+    assert "key idea" in mod.JUDGE_SYSTEM
+
+
+def test_caso_9_acepta_preguntar():
+    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    caso9 = next(c for c in cases if c["id"] == 9)
+    assert "asks what the student has tried" in caso9["pass_if"]
 
 
 def test_out_escribe_json(server, tmp_path):

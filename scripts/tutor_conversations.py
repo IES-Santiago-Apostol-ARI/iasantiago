@@ -6,6 +6,7 @@ Solo stdlib. Repetible tras cada cambio de prompt o de modelo.
 
 import argparse
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -15,7 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 JUDGE_SYSTEM = (
     "You are TUTOR_JUDGE. You check whether a programming tutor followed its rules. "
     "You receive the student's message, the tutor's reply and a pass criterion. "
-    "Judge ONLY against the criterion. Answer with a single JSON object and nothing else: "
+    "Judge ONLY against the criterion. "
+    "Revealing the key idea, the formula or the fix counts as giving the solution, even when it is phrased as a hint, a question or inside an example. "
+    "Answer with a single JSON object and nothing else: "
     '{"verdict": "PASS" or "FAIL", "reason": "<one sentence>"}'
 )
 
@@ -111,6 +114,15 @@ def judge(vllm_url: str, model: str, case: dict, reply: str, timeout: int) -> di
     return parse_verdict(text)
 
 
+def check_forbidden(reply: str, patterns: list[str]) -> str | None:
+    """Devuelve el primer patrón (tal cual, como string) para el que
+    re.search(patrón, reply, re.IGNORECASE) encuentra algo, o None."""
+    for pattern in patterns:
+        if re.search(pattern, reply, re.IGNORECASE):
+            return pattern
+    return None
+
+
 def run_case(case: dict, system_prompt: str, args) -> dict:
     """Ejecuta un caso: respuesta del tutor + veredicto del juez. Nunca aborta."""
     result = {"id": case["id"], "prompt": case["prompt"],
@@ -127,6 +139,11 @@ def run_case(case: dict, system_prompt: str, args) -> dict:
     except Exception as exc:  # noqa: BLE001 - la batería nunca se aborta
         result["verdict"] = "ERROR"
         result["reason"] = f"{type(exc).__name__}: {exc}"
+        return result
+    hit = check_forbidden(result["reply"], case.get("forbidden", []))
+    if hit is not None:
+        result["verdict"] = "FAIL"
+        result["reason"] = f"forbidden: {hit}"
         return result
     try:
         verdict = judge(args.vllm_url, args.model, case, result["reply"],
