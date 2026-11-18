@@ -123,6 +123,60 @@ def test_queue_en_meta(monkeypatch, fake_pipeline):
     assert queue >= 0
 
 
+def test_torch_threads_valores(monkeypatch):
+    import torch
+
+    applied = []
+    monkeypatch.setattr(torch, "set_num_threads", applied.append)
+
+    assert app_module._apply_torch_threads("6") == 6
+    assert applied == [6]
+    applied.clear()
+
+    for bad in (None, "", "0", "-2", "abc"):
+        assert app_module._apply_torch_threads(bad) is None
+    assert applied == []
+
+
+def test_ensure_models_loaded_calienta(monkeypatch):
+    from config.settings import EMBED_PER_TOPIC
+
+    calls = {"rerank": [], "encode": {}, "count_tokens": []}
+
+    class FakeReranker:
+        def rerank(self, query, passages, topk):
+            calls["rerank"].append((query, list(passages), topk))
+            return [0, 1]
+
+    class FakeEmbedder:
+        def __init__(self, topic):
+            self.topic = topic
+
+        def encode(self, texts, normalize_embeddings=False):
+            calls["encode"].setdefault(self.topic, []).append(
+                (list(texts), normalize_embeddings)
+            )
+            return [[0.0]]
+
+    monkeypatch.setattr(app_module, "get_reranker", lambda: FakeReranker())
+    monkeypatch.setattr(app_module, "get_embedder", lambda topic: FakeEmbedder(topic))
+    # Se llaman por la clase (ModelCache.count_tokens), así que un plain
+    # function recibe los argumentos directamente, sin cls.
+    monkeypatch.setattr(core_cache.ModelCache, "get_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        core_cache.ModelCache,
+        "count_tokens",
+        lambda text: calls["count_tokens"].append(text) or 1,
+    )
+
+    app_module.ensure_models_loaded()
+
+    assert calls["rerank"] == [("warmup", ["warmup uno", "warmup dos"], 2)]
+    assert set(calls["encode"]) == set(EMBED_PER_TOPIC)
+    assert all(v == [(["warmup"], True)] for v in calls["encode"].values())
+    assert len(calls["count_tokens"]) >= 1
+
+
 def test_lock_de_cache_carga_una_vez(monkeypatch):
     instancias = 0
 

@@ -104,12 +104,7 @@ async def lifespan(app: FastAPI):
     healthcheck de compose lo usa como señal de readiness.
     """
     logger.info("FastAPI startup: precargando modelos...")
-    n = os.getenv("TORCH_NUM_THREADS")
-    if n:
-        import torch
-
-        torch.set_num_threads(int(n))
-        logger.info(f"torch.set_num_threads({int(n)})")
+    _apply_torch_threads(os.getenv("TORCH_NUM_THREADS"))
     logger.info(f"RETRIEVE_MAX_CONCURRENCY={RETRIEVE_MAX_CONCURRENCY}")
     try:
         ensure_models_loaded()
@@ -126,6 +121,30 @@ async def lifespan(app: FastAPI):
 # ============================================================
 # INICIALIZACIÓN
 # ============================================================
+
+
+def _apply_torch_threads(value: str | None) -> int | None:
+    """Aplica TORCH_NUM_THREADS si es un entero > 0 (T14).
+
+    Si el valor no es un entero > 0 ('0', '-2', 'abc', ...), registra un
+    warning y no hace nada: el arranque no puede fallar por esto. Devuelve el
+    número de hilos aplicado o None si no se aplicó ninguno.
+    """
+    if value is None:
+        return None
+    try:
+        n = int(value)
+    except ValueError:
+        logger.warning(f"TORCH_NUM_THREADS={value!r} no es un entero; se ignora")
+        return None
+    if n <= 0:
+        logger.warning(f"TORCH_NUM_THREADS={value!r} debe ser > 0; se ignora")
+        return None
+    import torch
+
+    torch.set_num_threads(n)
+    logger.info(f"torch.set_num_threads({n})")
+    return n
 
 
 def ensure_models_loaded():
@@ -152,6 +171,24 @@ def ensure_models_loaded():
         logger.info("Precargando tokenizer...")
         ModelCache.get_tokenizer()
         logger.info("Tokenizer cargado")
+
+        # Calentamiento (T14): los tokenizers de HuggingFace cambian su estado
+        # interno (padding y truncation) la primera vez que se usan, y si dos
+        # hilos lo hacen a la vez puede saltar RuntimeError: Already borrowed.
+        # /retrieve corre en varios hilos, así que la primera pasada se hace
+        # aquí, en serie, antes de aceptar peticiones.
+        logger.info("Calentando reranker...")
+        get_reranker().rerank("warmup", ["warmup uno", "warmup dos"], topk=2)
+        logger.info("Reranker calentado")
+
+        for topic in EMBED_PER_TOPIC.keys():
+            logger.info(f"Calentando embedder para {topic}...")
+            get_embedder(topic).encode(["warmup"], normalize_embeddings=True)
+            logger.info(f"Embedder para {topic} calentado")
+
+        logger.info("Calentando contador de tokens...")
+        ModelCache.count_tokens("warmup")
+        logger.info("Contador de tokens calentado")
 
     except Exception as e:
         logger.error(f"Error cargando modelos al startup: {e}", exc_info=True)
