@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batería de la Fase 2: 10 conversaciones con el tutor y el propio modelo como juez.
+"""Batería de la Fase 2: 14 conversaciones con el tutor (4 de varios turnos) y el propio modelo como juez.
 
 Solo stdlib. Repetible tras cada cambio de prompt o de modelo.
 """

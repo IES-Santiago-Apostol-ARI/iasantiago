@@ -121,7 +121,7 @@ en `tutor` → marco aquí como hecha.
 
 # Iteración 2 — que el tutor no regale la idea clave, y una batería que lo detecte
 
-**APROBADA el 2026-11-18.** Las copias de `topics-`, `qdrant-` y `state-*.tgz` siguen sin caducar (no se pidió incluirlas).
+**APROBADA y COMPLETADA el 2026-11-18** (90 tests en `tutor/tests`; falta validar en el servidor). Las copias de `topics-`, `qdrant-` y `state-*.tgz` siguen sin caducar (no se pidió incluirlas).
 
 ## 7. Qué se vio en el servidor (2026-11-18)
 
@@ -225,10 +225,10 @@ Si no se cumplen, se ajusta el texto del prompt (T11b) con lo que se vea, como m
 
 | ID | Estado | Notas |
 |---|---|---|
-| T09 | en curso | |
-| T10 | pendiente | tras T09 |
-| T11 | en curso | |
-| T12 | en curso | |
+| T09 | hecha | Sin rondas. Nota del revisor: `\bimpar` también coincidiría con "imparcial" y `%\s*2` con "%20"; son improbables en respuestas sobre el tablero |
+| T10 | hecha | Sin rondas. El orquestador corrigió el docstring ("14 conversaciones"). El worker reformateó las listas `forbidden` en varias líneas, con el mismo contenido |
+| T11 | hecha | Sin rondas. Texto del prompt idéntico al aprobado |
+| T12 | hecha | Sin rondas. El orquestador quitó una variable sin usar en un test |
 
 ## 9. Fuera de la Iteración 2 (manual o para más adelante)
 
