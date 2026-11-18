@@ -12,7 +12,9 @@
 # con la API de OpenAI (`/v1/models`, `/v1/chat/completions`): ver PLAN.md punto
 # 6 y FINDINGS.md §7.1.
 
+import asyncio
 import contextlib
+import functools
 import hashlib
 import logging
 import os
@@ -32,6 +34,7 @@ from config.settings import (
     VLLM_MAX_MODEL_LEN,
     VLLM_MAX_TOKENS,
 )
+import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -61,6 +64,10 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# T14: límite de búsquedas simultáneas en hilos para /retrieve. Se lee en el
+# momento de la llamada (los tests lo cambian con monkeypatch), no al importar.
+RETRIEVE_MAX_CONCURRENCY = int(os.getenv("RETRIEVE_MAX_CONCURRENCY", "4"))
 
 
 # ============================================================
@@ -97,6 +104,13 @@ async def lifespan(app: FastAPI):
     healthcheck de compose lo usa como señal de readiness.
     """
     logger.info("FastAPI startup: precargando modelos...")
+    n = os.getenv("TORCH_NUM_THREADS")
+    if n:
+        import torch
+
+        torch.set_num_threads(int(n))
+        logger.info(f"torch.set_num_threads({int(n)})")
+    logger.info(f"RETRIEVE_MAX_CONCURRENCY={RETRIEVE_MAX_CONCURRENCY}")
     try:
         ensure_models_loaded()
         logger.info("Modelos precargados correctamente")
@@ -131,6 +145,13 @@ def ensure_models_loaded():
         logger.info("Precargando reranker...")
         get_reranker()
         logger.info("Reranker cargado")
+
+        # Precargar tokenizer (T14: la primera petición no paga el from_pretrained)
+        from core.cache import ModelCache
+
+        logger.info("Precargando tokenizer...")
+        ModelCache.get_tokenizer()
+        logger.info("Tokenizer cargado")
 
     except Exception as e:
         logger.error(f"Error cargando modelos al startup: {e}", exc_info=True)
@@ -212,6 +233,63 @@ async def healthz():
 #
 # **`/v1/eval/offline` NO es parte de esa superficie** aunque comparta el prefijo
 # `/v1`: es el banco de evaluación y se queda.
+
+
+_limiters: dict = {}
+
+
+def _get_retrieve_limiter() -> anyio.CapacityLimiter:
+    """Un CapacityLimiter por (bucle de eventos, tamaño). Se crea dentro del bucle
+    que lo usa (no al importar), y se rehace si cambia RETRIEVE_MAX_CONCURRENCY."""
+    key = (id(asyncio.get_running_loop()), RETRIEVE_MAX_CONCURRENCY)
+    if key not in _limiters:
+        _limiters[key] = anyio.CapacityLimiter(RETRIEVE_MAX_CONCURRENCY)
+    return _limiters[key]
+
+
+def _retrieve_sync(req, context_token_limit, t_enqueued):
+    """Parte síncrona de /retrieve: retrieval → rerank → recorte → citaciones (T14).
+
+    Corre en un hilo de anyio (fuera del bucle de eventos) y hace EXACTAMENTE lo
+    que `retrieve` hacía en línea, con las mismas mediciones de T13. Las llamadas
+    se hacen por nombre de módulo para que los monkeypatch de los tests sigan
+    funcionando.
+    """
+    t_queue = time.perf_counter() - t_enqueued
+
+    t0 = time.perf_counter()
+    retrieved, meta = choose_retrieval(
+        req.topic, req.query, req.generative, final_topk_override=req.top_k
+    )
+    t_retrieval = time.perf_counter() - t0
+    logger.info(f"[/retrieve] Recuperados {len(retrieved)} chunks para '{req.topic}'")
+
+    t_rerank = 0.0
+    t_trim = 0.0
+    if retrieved:
+        if req.rerank:
+            t0 = time.perf_counter()
+            retrieved = rerank_passages(req.query, retrieved, rerank_topk=None)
+            t_rerank = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        retrieved = soft_trim_context(retrieved, context_token_limit)
+        t_trim = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    context_text, cited = attach_citations(retrieved, req.topic)
+    t_citations = time.perf_counter() - t0
+
+    return (
+        retrieved,
+        meta,
+        context_text,
+        cited,
+        t_queue,
+        t_retrieval,
+        t_rerank,
+        t_trim,
+        t_citations,
+    )
 
 
 def _build_citations(chunks: List[Dict], topic: str) -> List[Dict]:
@@ -318,27 +396,21 @@ async def retrieve(
     else:
         context_token_limit = CTX_TOKENS_SOFT_LIMIT
 
-    t0 = time.perf_counter()
-    retrieved, meta = choose_retrieval(
-        req.topic, req.query, req.generative, final_topk_override=req.top_k
+    t_enqueued = time.perf_counter()
+    (
+        retrieved,
+        meta,
+        context_text,
+        cited,
+        t_queue,
+        t_retrieval,
+        t_rerank,
+        t_trim,
+        t_citations,
+    ) = await anyio.to_thread.run_sync(
+        functools.partial(_retrieve_sync, req, context_token_limit, t_enqueued),
+        limiter=_get_retrieve_limiter(),
     )
-    t_retrieval = time.perf_counter() - t0
-    logger.info(f"[/retrieve] Recuperados {len(retrieved)} chunks para '{req.topic}'")
-
-    t_rerank = 0.0
-    t_trim = 0.0
-    if retrieved:
-        if req.rerank:
-            t0 = time.perf_counter()
-            retrieved = rerank_passages(req.query, retrieved, rerank_topk=None)
-            t_rerank = time.perf_counter() - t0
-        t0 = time.perf_counter()
-        retrieved = soft_trim_context(retrieved, context_token_limit)
-        t_trim = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    context_text, cited = attach_citations(retrieved, req.topic)
-    t_citations = time.perf_counter() - t0
 
     # `source` se conserva aunque ya sólo haya una ruta: las filas históricas de
     # `retrieval.jsonl` llevan "chat" (o ninguna, que el comparador cuenta como
@@ -373,6 +445,7 @@ async def retrieve(
 
     t_total = time.perf_counter() - t_start
     timings_ms = {
+        "queue": int(round(t_queue * 1000)),
         "retrieval": int(round(t_retrieval * 1000)),
         "rerank": int(round(t_rerank * 1000)),
         "trim": int(round(t_trim * 1000)),
@@ -380,9 +453,10 @@ async def retrieve(
         "total": int(round(t_total * 1000)),
     }
     logger.info(
-        "[/retrieve] tiempos ms: retrieval=%d rerank=%d trim=%d citations=%d total=%d topic=%s chunks=%d",
-        timings_ms["retrieval"], timings_ms["rerank"], timings_ms["trim"],
-        timings_ms["citations"], timings_ms["total"], req.topic, len(retrieved),
+        "[/retrieve] tiempos ms: queue=%d retrieval=%d rerank=%d trim=%d citations=%d total=%d topic=%s chunks=%d",
+        timings_ms["queue"], timings_ms["retrieval"], timings_ms["rerank"],
+        timings_ms["trim"], timings_ms["citations"], timings_ms["total"],
+        req.topic, len(retrieved),
     )
 
     return {

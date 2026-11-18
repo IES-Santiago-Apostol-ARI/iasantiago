@@ -4,11 +4,13 @@
 import asyncio
 import logging
 import os
+import threading
 from typing import Dict, Optional, Any
 
 from transformers import AutoTokenizer
 
 from config.settings import VLLM_MODEL
+from rerank import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,10 @@ class ModelCache:
     _reranker: Optional[Any] = None
     _tokenizer: Optional[Any] = None  # transformers tokenizer
     _lock = asyncio.Lock()
+    # T14: /retrieve corre en hilos de anyio, así que la caché de modelos tiene
+    # que soportar llamadas simultáneas desde varios hilos. El _lock de asyncio
+    # no sirve fuera del bucle; este lock sí.
+    _thread_lock = threading.Lock()
 
     @classmethod
     def _get_device(cls) -> str:
@@ -48,9 +54,12 @@ class ModelCache:
     @classmethod
     def get_tokenizer(cls) -> Any:
         """Obtiene el tokenizador correcto para el modelo (singleton)"""
-        if cls._tokenizer is None:
-            cls._tokenizer = AutoTokenizer.from_pretrained(VLLM_MODEL)
-            logger.debug(f"Tokenizador {VLLM_MODEL} inicializado")
+        if cls._tokenizer is not None:
+            return cls._tokenizer
+        with cls._thread_lock:
+            if cls._tokenizer is None:
+                cls._tokenizer = AutoTokenizer.from_pretrained(VLLM_MODEL)
+                logger.debug(f"Tokenizador {VLLM_MODEL} inicializado")
         return cls._tokenizer
 
     @classmethod
@@ -77,31 +86,34 @@ class ModelCache:
 
         model_name = embed_config.get(topic, default_model)
 
-        if model_name not in cls._embedders:
-            try:
-                device = cls._get_device()
-                revision = get_model_revision(model_name)
-                logger.info(
-                    f"Cargando embedder: {model_name} en {device} "
-                    f"(revision={revision or 'default'})"
-                )
+        if model_name in cls._embedders:
+            return cls._embedders[model_name]
+        with cls._thread_lock:
+            if model_name not in cls._embedders:
+                try:
+                    device = cls._get_device()
+                    revision = get_model_revision(model_name)
+                    logger.info(
+                        f"Cargando embedder: {model_name} en {device} "
+                        f"(revision={revision or 'default'})"
+                    )
 
-                embedder = SentenceTransformer(
-                    model_name,
-                    revision=revision,
-                    trust_remote_code=True,
-                    device=device,
-                )
-                cls._embedders[model_name] = embedder
-                logger.info(f"Embedder {model_name} cargado exitosamente")
+                    embedder = SentenceTransformer(
+                        model_name,
+                        revision=revision,
+                        trust_remote_code=True,
+                        device=device,
+                    )
+                    cls._embedders[model_name] = embedder
+                    logger.info(f"Embedder {model_name} cargado exitosamente")
 
-            except Exception as e:
-                logger.error(
-                    f"Error al cargar embedder {model_name}: {e}", exc_info=True
-                )
-                raise RuntimeError(
-                    f"No se pudo cargar el modelo de embedding {model_name}: {e}"
-                )
+                except Exception as e:
+                    logger.error(
+                        f"Error al cargar embedder {model_name}: {e}", exc_info=True
+                    )
+                    raise RuntimeError(
+                        f"No se pudo cargar el modelo de embedding {model_name}: {e}"
+                    )
 
         return cls._embedders[model_name]
 
@@ -116,12 +128,13 @@ class ModelCache:
         Returns:
             CrossEncoderReranker configurado
         """
-        from rerank import CrossEncoderReranker
-
-        if cls._reranker is None:
-            logger.info(f"Cargando reranker: {model_name}")
-            cls._reranker = CrossEncoderReranker(model_name)
-            logger.info(f"Reranker {model_name} cargado exitosamente")
+        if cls._reranker is not None:
+            return cls._reranker
+        with cls._thread_lock:
+            if cls._reranker is None:
+                logger.info(f"Cargando reranker: {model_name}")
+                cls._reranker = CrossEncoderReranker(model_name)
+                logger.info(f"Reranker {model_name} cargado exitosamente")
 
         return cls._reranker
 
