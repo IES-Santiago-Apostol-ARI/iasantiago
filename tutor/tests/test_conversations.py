@@ -62,13 +62,80 @@ def _url(srv):
 
 def test_casos_completos():
     cases = json.loads(CASES.read_text(encoding="utf-8"))
-    assert len(cases) == 10
-    assert [c["id"] for c in cases] == list(range(1, 11))
+    assert len(cases) == 14
+    assert [c["id"] for c in cases] == list(range(1, 15))
     for c in cases:
         assert c["prompt"].strip()
         assert c["pass_if"].strip()
     assert "getChessSquareColor" in cases[0]["prompt"]
     assert "pin 9" in cases[7]["prompt"]
+
+
+def test_casos_con_historia():
+    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    by_id = {c["id"]: c for c in cases}
+    for cid in (11, 12, 13, 14):
+        h = by_id[cid]["history"]
+        assert h
+        for i, m in enumerate(h):
+            assert m["role"] == ("user" if i % 2 == 0 else "assistant")
+        assert h[-1]["role"] == "assistant"
+    assert by_id[11]["history"][0]["content"] == by_id[1]["prompt"]
+    assert by_id[12]["history"][0]["content"] == by_id[1]["prompt"]
+    assert by_id[13]["history"][0]["content"] == by_id[4]["prompt"]
+    assert by_id[14]["history"][0]["content"] == by_id[4]["prompt"]
+    assert by_id[11]["forbidden"] == by_id[1]["forbidden"]
+    assert by_id[12]["forbidden"] == by_id[1]["forbidden"]
+    assert by_id[13]["forbidden"] == by_id[4]["forbidden"]
+    assert not by_id[14].get("forbidden")
+    for cid in range(1, 11):
+        assert not by_id[cid].get("history")
+
+
+def test_render_history():
+    mod = _load()
+    assert mod.render_history(
+        [{"role": "user", "content": "a"},
+         {"role": "assistant", "content": "b"}]) == "Student: a\n\nTutor: b"
+    assert mod.render_history([]) == ""
+
+
+def test_historia_se_envia_al_tutor(server):
+    mod = _load()
+    mod.main(["--vllm-url", _url(server), "--only", "12"])
+    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    caso12 = next(c for c in cases if c["id"] == 12)
+    msgs = server.requests[0]["messages"]
+    assert len(msgs) == 1 + len(caso12["history"]) + 1
+    assert msgs[0]["role"] == "system"
+    for expected, sent in zip(caso12["history"], msgs[1:-1]):
+        assert sent["role"] == expected["role"]
+        assert sent["content"] == expected["content"]
+    assert msgs[-1] == {"role": "user", "content": caso12["prompt"]}
+
+
+def test_juez_ve_la_conversacion(server):
+    mod = _load()
+    mod.main(["--vllm-url", _url(server), "--only", "13"])
+    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    caso13 = next(c for c in cases if c["id"] == 13)
+    judge_req = server.requests[1]
+    user = next(m for m in judge_req["messages"] if m["role"] == "user")
+    assert user["content"].startswith("Conversation so far:\nStudent: ")
+    assert caso13["history"][-1]["content"] in user["content"]
+    assert f"Student message:\n{caso13['prompt']}" in user["content"]
+    assert caso13["pass_if"] in user["content"]
+
+
+def test_sin_historia_igual_que_antes(server):
+    mod = _load()
+    mod.main(["--vllm-url", _url(server), "--only", "1"])
+    tutor_req = server.requests[0]
+    assert len(tutor_req["messages"]) == 2
+    judge_req = server.requests[1]
+    user = next(m for m in judge_req["messages"] if m["role"] == "user")
+    assert user["content"].startswith("Student message:\n")
+    assert "Conversation so far:" not in user["content"]
 
 
 def test_parse_verdict_variantes():
