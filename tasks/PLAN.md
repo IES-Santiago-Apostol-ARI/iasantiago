@@ -336,6 +336,13 @@ decidir**.
       y el sitio para el reranker solo hay que quitárselo a vLLM.
     - Para saber cuánto se le puede quitar, M1 también mira
       `kv_cache_usage_perc` en `/metrics` durante la prueba con 25 alumnos.
+    - Datos de vLLM (log, 2026-11-18): `--gpu-memory-utilization=0.93`, KV cache de
+      226.599 tokens, que dan para 3,46 conversaciones de 65.536 tokens a la vez.
+    - El 7 % que vLLM deja fuera son unos 2,2 GB. Puede que el reranker (~1,1 GB en
+      fp32, ~0,6 GB en fp16, más ~0,4 GB del contexto CUDA) quepa **sin tocar vLLM**.
+      Hay que confirmarlo con `nvidia-smi` en M1.
+    - Si hubiera que quitarle ~1,5 GB a vLLM, `--max-model-len 65536` se mantiene:
+      la cifra de 3,46 bajaría pero seguiría claramente por encima de 1.
   - **(b) Menos candidatos que reordenar:** valve `top_k` del Filter. Es más
     barato, pero puede empeorar las citas.
 - **Si hay núcleos libres o mucho tiempo en Qdrant**, T14 es la solución directa.
