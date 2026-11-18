@@ -314,7 +314,7 @@ decidir**.
 |---|---|---|---|
 | E0 | (Orquestador, sin código) Entorno para ejecutar los tests de `rag-api` en el host. Hoy no corren por falta de `torch` y `httpx`. Será un venv con `uv` fuera del repo (`/datos/lab-wt/.venv-rag`), con `rag-api/requirements.txt`, `torch` CPU y `pytest`. Se anota el resultado de partida de `rag-api/tests`. | ninguno del repo | — |
 | T13 | Medir por etapas. `/retrieve` devuelve `meta["timings_ms"]` con `retrieval`, `rerank`, `trim`, `citations` y `total` (enteros, ms) y lo escribe en una línea de log `[/retrieve] tiempos ms …`. No cambia nada más. Tests con las etapas sustituidas por funciones falsas: no carga modelos ni toca Qdrant. | `rag-api/app.py`, `rag-api/tests/test_retrieve_timings.py` | E0 |
-| M1 | (Tú, en el servidor) Medición. Pasos: `git pull`, `docker compose restart rag-api`, `loadtest_tutor.py --topic Programming` con `--students 1` y `--students 15`, y guardar las líneas `tiempos ms` del log. Además: `nproc`, `nvidia-smi --query-gpu=memory.used,memory.total --format=csv` y `grep DEVICE .env`. | — | T13 |
+| M1 | (Tú, en el servidor) Medición. Pasos: `git pull`, `docker compose restart rag-api`, `loadtest_tutor.py --topic Programming` con `--students 1` y `--students 15`, y guardar las líneas `tiempos ms` del log. Además: `nproc`, `nvidia-smi --query-gpu=memory.used,memory.total --format=csv`, `grep DEVICE .env` y el pico de `kv_cache_usage_perc` de vLLM con `--students 25`. | — | T13 |
 | T14 | Dejar de bloquear el bucle de eventos. La parte síncrona de `retrieve` pasa a una función `_retrieve_sync(...)`, que se ejecuta con `await anyio.to_thread.run_sync(...)` bajo un `anyio.CapacityLimiter` de tamaño `RETRIEVE_MAX_CONCURRENCY` (variable de entorno, por defecto 4). La validación del tema (400) y `collection_exists` siguen antes, igual que ahora. `ModelCache.get_embedder`, `get_reranker` y `get_tokenizer` ganan un `threading.Lock`, para que dos hilos no carguen el mismo modelo a la vez. Tests: 4 peticiones simultáneas con etapas falsas de 0,3 s acaban en menos de 0,8 s con el límite 4 y en 1,2 s o más con el límite 1; `/healthz` responde mientras hay una búsqueda en curso; los tests de `rag-api` que ya existen siguen en verde. | `rag-api/app.py`, `rag-api/core/cache.py`, `rag-api/tests/test_retrieve_concurrency.py` | T13 (mismo fichero), M1 |
 | M2 | (Tú, en el servidor) Repetir M1 con T14 y probar `RETRIEVE_MAX_CONCURRENCY` = 1, 2, 4 y 8, para quedarse con el mejor. | — | T14 |
 
@@ -331,6 +331,11 @@ decidir**.
   - **(a) Reranker en GPU:** `RERANK_DEVICE=cuda`, bajando un poco
     `VLLM_GPU_MEMORY_UTILIZATION` para dejarle sitio. Es lo más eficaz, pero quita
     algo de KV cache a vLLM y obliga a reiniciarlo.
+    - El ingestor nunca corre a la vez que vLLM: `make ingest` para `vllm` y
+      `rag-api`. Así que mientras hay clase solo comparten la GPU vLLM y `rag-api`,
+      y el sitio para el reranker solo hay que quitárselo a vLLM.
+    - Para saber cuánto se le puede quitar, M1 también mira
+      `kv_cache_usage_perc` en `/metrics` durante la prueba con 25 alumnos.
   - **(b) Menos candidatos que reordenar:** valve `top_k` del Filter. Es más
     barato, pero puede empeorar las citas.
 - **Si hay núcleos libres o mucho tiempo en Qdrant**, T14 es la solución directa.
