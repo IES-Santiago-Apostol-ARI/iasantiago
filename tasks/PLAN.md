@@ -346,6 +346,16 @@ con 15 alumnos da una espera total (retrieve + primer token) con mediana < 5 s y
 máximo < 10 s, sin fallos. Además, la batería del tutor y la prueba de la web siguen
 igual: esta iteración no toca el prompt.
 
+### Estado de la Iteración 3
+
+| ID | Estado | Notas |
+|---|---|---|
+| E0 | hecha | Venv en `/datos/lab-wt/.venv-rag` (torch 2.15.0+cpu, fastapi 0.119.1). Base: 69 tests de `rag-api` en verde en un worktree limpio. En `/datos/iasantiago` falla uno (`test_rag_api_ya_no_puede_hablar_con_vllm`) por una carpeta `rag-api/chat/__pycache__` que quedó fuera de git, solo en esta máquina |
+| T13 | en curso | |
+| M1 | pendiente | |
+| T14 | pendiente | tras M1 |
+| M2 | pendiente | |
+
 ## 12. Fuera de la Iteración 3
 
 - **Más workers de uvicorn.** Cada worker carga su propia copia del embedder y del
