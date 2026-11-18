@@ -346,7 +346,7 @@ con 15 alumnos da una espera total (retrieve + primer token) con mediana < 5 s y
 máximo < 10 s, sin fallos. Además, la batería del tutor y la prueba de la web siguen
 igual: esta iteración no toca el prompt.
 
-### Decisión tras M1 (PROPUESTA, pendiente de "aprobado")
+### Decisión tras M1 (APROBADA el 2026-11-18)
 
 **CPU del servidor:** Intel Core Ultra 7 265, con 20 núcleos (8 P y 12 E) y sin
 hyperthreading. **No tiene AVX-512 ni AMX**, así que se descarta el reranker en bf16:
@@ -389,7 +389,8 @@ fragmentos) y una sola búsqueda ya usa unos 11,5 de los 20 núcleos. Por tanto:
 | E0 | hecha | Venv en `/datos/lab-wt/.venv-rag` (torch 2.15.0+cpu, fastapi 0.119.1). Base: 69 tests de `rag-api` en verde en un worktree limpio. En `/datos/iasantiago` falla uno (`test_rag_api_ya_no_puede_hablar_con_vllm`) por una carpeta `rag-api/chat/__pycache__` que quedó fuera de git, solo en esta máquina |
 | T13 | hecha | Sin rondas. El revisor dejó notas menores sobre los tests (asserts de tiempo con sleeps de 0,03 s, una lista compartida entre tests). Ojo: `timings_ms.total` no incluye la espera en cola mientras el bucle de eventos está bloqueado; esa espera es el tiempo del cliente menos `total` |
 | M1 | hecha | Medido el 2026-11-18. Con 1 alumno, `/retrieve` tarda 1,6 s (arranque en frío). Con 15: mediana 6,9 s y máximo 12,7 s, en escalera.<br>Cada búsqueda en caliente tarda unos 840 ms: **rerank ~750 ms (90 %)**, retrieval ~70 ms, trim ~5 ms y citations 0; reordena 18 fragmentos (`chunks=18`).<br>La primera búsqueda tras reiniciar lleva trim=504 ms (el tokenizer se carga la primera vez que se usa) y retrieval=380 ms.<br>`docker stats` marca ~1150 % de CPU **con una sola búsqueda en curso**: el reranker ya usa unos 11,5 núcleos |
-| T14 | pendiente | tras M1 |
+| T14 | en curso | |
+| T15 | en curso | |
 | M2 | pendiente | |
 
 ## 12. Fuera de la Iteración 3
