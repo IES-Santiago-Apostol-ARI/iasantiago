@@ -1,7 +1,7 @@
 """
 title: IASantiago RAG Retrieval
 author: José L. Redrejo Rodríguez
-version: 0.2.0
+version: 0.3.0
 required_open_webui_version: 0.5.0
 description: >
     Inlet Filter que consulta el servicio de retrieval puro de rag-api
@@ -74,6 +74,13 @@ class Filter:
             default=0,
             description="Override de profundidad. 0 = usar el valor por defecto de rag-api.",
         )
+        top_k_map: str = Field(
+            default="{}",
+            description=(
+                'JSON {"<model_id o nombre>": N}: profundidad por modelo, con prioridad '
+                'sobre top_k. Ej: {"tutor-ari": 8}'
+            ),
+        )
         timeout: int = Field(default=60, description="Timeout HTTP en segundos.")
         show_status: bool = Field(
             default=True, description="Emitir estado 'Consultando documentos…' en la UI."
@@ -122,6 +129,31 @@ class Filter:
             return mapping[resolved]
 
         return resolved or self.valves.default_topic or None
+
+    def _resolve_top_k(self, model: Optional[dict]) -> int:
+        """top_k_map[id] -> top_k_map[name] -> valves.top_k (si > 0) -> 0 (sin override).
+        JSON inválido o que no sea un objeto = {}. Valores que no sean enteros > 0 se ignoran."""
+        try:
+            mapping = json.loads(self.valves.top_k_map or "{}")
+        except json.JSONDecodeError:
+            mapping = None
+        if not isinstance(mapping, dict):
+            mapping = {}
+        if model:
+            model_id = model.get("id")
+            name = model.get("name") or (model.get("info") or {}).get("name")
+            for key in (model_id, name):
+                if key is not None and key in mapping:
+                    value = mapping[key]
+                    if isinstance(value, bool):
+                        continue
+                    try:
+                        n = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if n > 0:
+                        return n
+        return self.valves.top_k if self.valves.top_k > 0 else 0
 
     def _is_generative(self, model: Optional[dict]) -> bool:
         """Decide el modo examen a partir del modelo, no de una valve global.
@@ -219,8 +251,9 @@ class Filter:
             "topic": topic,
             "generative": self._is_generative(__model__),
         }
-        if self.valves.top_k > 0:
-            payload["top_k"] = self.valves.top_k
+        top_k = self._resolve_top_k(__model__)
+        if top_k > 0:
+            payload["top_k"] = top_k
 
         headers = {"Content-Type": "application/json"}
         if self.valves.api_key:

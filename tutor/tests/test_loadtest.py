@@ -152,6 +152,39 @@ def test_retrieve_antes_del_chat(server):
 
 
 @pytest.mark.parametrize("server", ["ok"], indirect=True)
+def test_top_k_se_envia_a_retrieve(server):
+    port = server.server_address[1]
+    result = run_script(
+        server,
+        "--students", "1",
+        "--topic", "Programming",
+        "--top-k", "8",
+        "--rag-key", "K",
+        "--rag-url", f"http://127.0.0.1:{port}",
+    )
+    assert result.returncode == 0
+    retrieves = [r for r in server.requests if r["path"] == "/retrieve"]
+    assert len(retrieves) == 1
+    assert retrieves[0]["body"]["top_k"] == 8
+
+
+@pytest.mark.parametrize("server", ["ok"], indirect=True)
+def test_sin_top_k_no_se_envia(server):
+    port = server.server_address[1]
+    result = run_script(
+        server,
+        "--students", "1",
+        "--topic", "Programming",
+        "--rag-key", "K",
+        "--rag-url", f"http://127.0.0.1:{port}",
+    )
+    assert result.returncode == 0
+    retrieves = [r for r in server.requests if r["path"] == "/retrieve"]
+    assert len(retrieves) == 1
+    assert "top_k" not in retrieves[0]["body"]
+
+
+@pytest.mark.parametrize("server", ["ok"], indirect=True)
 def test_prompt_file_va_como_system(server, tmp_path):
     prompt = tmp_path / "prompt.txt"
     prompt.write_text("SOY-EL-PROMPT", encoding="utf-8")
