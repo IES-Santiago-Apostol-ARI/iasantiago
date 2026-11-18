@@ -272,7 +272,7 @@ Limitaciones conocidas, que hay que vigilar en el informe semanal del piloto:
 
 # Iteración 3 — `/retrieve` no atiende a los alumnos de uno en uno
 
-**PROPUESTA el 2026-11-18. Pendiente de "aprobado".**
+**APROBADA el 2026-11-18.**
 
 ## 10. Qué pasa (medido en el servidor, 2026-11-18)
 
